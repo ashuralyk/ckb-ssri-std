@@ -12,7 +12,7 @@ keywords = ["ckb", "nervos", "blockchain", "smart-contracts", "ssri"]
 categories = ["cryptography::cryptocurrencies", "development-tools"]
 
 [dependencies]
-ckb-std = { version = "0.16.4", features = ["allocator", "ckb-types"] }
+ckb-std = { version = "1.1.0", features = ["allocator", "ckb-types"] }
 serde_molecule = { version = "1.1.0", default-features = false, features = ["alloc"] }
 serde = { version = "1.0.210", default-features = false, features = ["derive"] }
 ckb-ssri-std-proc-macro = { version = "0.0.1", path = "../ckb-ssri-std-proc-macro" }
