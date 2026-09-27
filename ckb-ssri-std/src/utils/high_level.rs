@@ -1,4 +1,5 @@
 use crate::utils;
+use crate::utils::SearchKey;
 use alloc::vec;
 use alloc::vec::Vec;
 use ckb_std::{
@@ -201,15 +202,18 @@ pub fn get_transaction_block_hash(tx_hash: Byte32) -> Result<Byte32, SysError> {
 
 /// ckb-indexer RPC `get_cells`.
 ///
-/// `order` is `0` for ascending and `1` for descending. `after` is the pagination cursor.
+/// `search_key` is encoded as the molecule table in [`SearchKey`], which has the
+/// same fields as ckb-indexer's search key. `order` is `0` for ascending and `1`
+/// for descending. `after` is the pagination cursor.
 pub fn get_cells(
-    search_key: &[u8],
+    search_key: &SearchKey,
     order: u64,
     limit: u64,
     after: &[u8],
 ) -> Result<Vec<u8>, SysError> {
+    let search_key = serde_molecule::to_vec(search_key, false).map_err(|_| SysError::Encoding)?;
     load_data(|buf, _offset| {
-        utils::syscall_branch!(get_cells(buf, search_key, order, limit, after))
+        utils::syscall_branch!(get_cells(buf, &search_key, order, limit, after))
     })
 }
 
@@ -218,6 +222,7 @@ mod tests {
     extern crate std;
 
     use crate::utils;
+    use crate::utils::SearchKey;
     use ckb_std::ckb_types;
     use ckb_std::env;
     use ckb_types::packed::{Byte32, OutPoint, Script};
@@ -375,7 +380,9 @@ mod tests {
             syscalls::SYS_GET_CELLS,
         );
         assert_on_chain(
-            with_argv(&[], || high_level::get_cells(&[], 0, 1, &[])),
+            with_argv(&[], || {
+                high_level::get_cells(&SearchKey::default(), 0, 1, &[])
+            }),
             syscalls::SYS_GET_CELLS,
         );
     }

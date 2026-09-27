@@ -200,7 +200,8 @@ pub fn get_transaction_block_hash(buf: &mut [u8], tx_hash: &[u8]) -> Result<usiz
 /// ckb-indexer RPC `get_cells`.
 ///
 /// Native injection registers:
-/// `a2` search key, `a3` its length, `a4` order (`0` asc, `1` desc), `a5` limit,
+/// `a2` is [`crate::utils::SearchKey`] molecule bytes, `a3` their length,
+/// `a4` order (`0` asc, `1` desc), `a5` limit,
 /// `a6` cursor whose first 4 bytes are the little-endian length of the `after` bytes that follow.
 pub fn get_cells(
     buf: &mut [u8],

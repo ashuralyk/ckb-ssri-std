@@ -4,7 +4,10 @@ use syscalls::vm_version;
 use crate::SSRIError;
 
 pub mod high_level;
+pub mod indexer;
 pub mod syscalls;
+
+pub use indexer::{Script, ScriptType, SearchKey, SearchKeyFilter, SearchMode};
 
 pub(crate) use syscalls::{catalog, native, on_chain, raw, SysError};
 

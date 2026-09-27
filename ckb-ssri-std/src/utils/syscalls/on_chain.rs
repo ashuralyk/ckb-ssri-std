@@ -80,7 +80,8 @@ pub fn get_transaction_block_hash(_buf: &mut [u8], _tx_hash: &[u8]) -> Result<us
 /// On-chain adaptation of `get_cells`.
 ///
 /// Same semantics as the native indexer query: cells in the transaction that match
-/// `search_key`, ordered and limited the same way. `after` is the pagination cursor.
+/// [`crate::utils::SearchKey`] bytes, ordered and limited the same way.
+/// `after` is the pagination cursor.
 pub fn get_cells(
     _buf: &mut [u8],
     _search_key: &[u8],
