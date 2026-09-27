@@ -3,7 +3,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 use ckb_std::{
     ckb_types::{
-        packed::{CellOutput, CellOutputReader, OutPoint, OutPointReader, Script},
+        packed::{
+            Byte32, Byte32Reader, CellOutput, CellOutputReader, Header, HeaderReader, OutPoint,
+            OutPointReader, Script,
+        },
         prelude::*,
     },
     error::SysError,
@@ -142,6 +145,74 @@ pub fn find_cell_data_by_out_point(out_point: OutPoint) -> Result<Vec<u8>, SysEr
     })
 }
 
+/// CKB net RPC `local_node_info`.
+pub fn network() -> Result<Vec<u8>, SysError> {
+    load_data(|buf, _offset| utils::syscall_branch!(network(buf)))
+}
+
+/// CKB RPC `get_live_cell`.
+///
+/// `with_data` asks the host to include the cell data in the returned bytes.
+pub fn get_live_cell(out_point: OutPoint, with_data: bool) -> Result<Vec<u8>, SysError> {
+    load_data(|buf, _offset| {
+        utils::syscall_branch!(get_live_cell(buf, out_point.as_slice(), with_data))
+    })
+}
+
+/// CKB RPC `get_header`.
+pub fn get_header(block_hash: Byte32) -> Result<Header, SysError> {
+    let data =
+        load_data(|buf, _offset| utils::syscall_branch!(get_header(buf, block_hash.as_slice())))?;
+    match HeaderReader::verify(&data, false) {
+        Ok(()) => Ok(Header::new_unchecked(data.into())),
+        Err(_err) => Err(SysError::Encoding),
+    }
+}
+
+/// CKB RPC `get_header_by_number`.
+pub fn get_header_by_number(block_number: u64) -> Result<Header, SysError> {
+    let data =
+        load_data(|buf, _offset| utils::syscall_branch!(get_header_by_number(buf, block_number)))?;
+    match HeaderReader::verify(&data, false) {
+        Ok(()) => Ok(Header::new_unchecked(data.into())),
+        Err(_err) => Err(SysError::Encoding),
+    }
+}
+
+/// CKB RPC `get_block_hash`.
+pub fn get_block_hash(block_number: u64) -> Result<Byte32, SysError> {
+    let mut data = [0u8; Byte32::TOTAL_SIZE];
+    utils::syscall_branch!(get_block_hash(&mut data, block_number))?;
+    match Byte32Reader::verify(&data, false) {
+        Ok(()) => Ok(Byte32::new_unchecked(data.to_vec().into())),
+        Err(_err) => Err(SysError::Encoding),
+    }
+}
+
+/// Block hash of a committed transaction, from `get_transaction`'s `tx_status.block_hash`.
+pub fn get_transaction_block_hash(tx_hash: Byte32) -> Result<Byte32, SysError> {
+    let mut data = [0u8; Byte32::TOTAL_SIZE];
+    utils::syscall_branch!(get_transaction_block_hash(&mut data, tx_hash.as_slice()))?;
+    match Byte32Reader::verify(&data, false) {
+        Ok(()) => Ok(Byte32::new_unchecked(data.to_vec().into())),
+        Err(_err) => Err(SysError::Encoding),
+    }
+}
+
+/// ckb-indexer RPC `get_cells`.
+///
+/// `order` is `0` for ascending and `1` for descending. `after` is the pagination cursor.
+pub fn get_cells(
+    search_key: &[u8],
+    order: u64,
+    limit: u64,
+    after: &[u8],
+) -> Result<Vec<u8>, SysError> {
+    load_data(|buf, _offset| {
+        utils::syscall_branch!(get_cells(buf, search_key, order, limit, after))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;
@@ -149,7 +220,7 @@ mod tests {
     use crate::utils;
     use ckb_std::ckb_types;
     use ckb_std::env;
-    use ckb_types::packed::{OutPoint, Script};
+    use ckb_types::packed::{Byte32, OutPoint, Script};
     use ckb_types::prelude::Entity;
     use std::sync::Mutex;
     use utils::{high_level, on_chain, syscalls, SysError};
@@ -218,6 +289,94 @@ mod tests {
         assert_on_chain(
             with_argv(&[], || high_level::find_cell_data_by_out_point(out_point)),
             syscalls::SYS_FIND_CELL_DATA_BY_OUT_POINT,
+        );
+    }
+
+    #[test]
+    fn network_on_chain() {
+        let mut buf = [0u8; 8];
+        assert_on_chain(on_chain::network(&mut buf), syscalls::SYS_NETWORK);
+        assert_on_chain(with_argv(&[], high_level::network), syscalls::SYS_NETWORK);
+    }
+
+    #[test]
+    fn get_live_cell_on_chain() {
+        let mut buf = [0u8; 8];
+        assert_on_chain(
+            on_chain::get_live_cell(&mut buf, &[], false),
+            syscalls::SYS_GET_LIVE_CELL,
+        );
+        let out_point = OutPoint::default();
+        assert_on_chain(
+            with_argv(&[], || high_level::get_live_cell(out_point, false)),
+            syscalls::SYS_GET_LIVE_CELL,
+        );
+    }
+
+    #[test]
+    fn get_header_on_chain() {
+        let mut buf = [0u8; 8];
+        assert_on_chain(
+            on_chain::get_header(&mut buf, &[]),
+            syscalls::SYS_GET_HEADER,
+        );
+        let block_hash = Byte32::default();
+        assert_on_chain(
+            with_argv(&[], || high_level::get_header(block_hash)),
+            syscalls::SYS_GET_HEADER,
+        );
+    }
+
+    #[test]
+    fn get_header_by_number_on_chain() {
+        let mut buf = [0u8; 8];
+        assert_on_chain(
+            on_chain::get_header_by_number(&mut buf, 0),
+            syscalls::SYS_GET_HEADER_BY_NUMBER,
+        );
+        assert_on_chain(
+            with_argv(&[], || high_level::get_header_by_number(0)),
+            syscalls::SYS_GET_HEADER_BY_NUMBER,
+        );
+    }
+
+    #[test]
+    fn get_block_hash_on_chain() {
+        let mut buf = [0u8; 8];
+        assert_on_chain(
+            on_chain::get_block_hash(&mut buf, 0),
+            syscalls::SYS_GET_BLOCK_HASH,
+        );
+        assert_on_chain(
+            with_argv(&[], || high_level::get_block_hash(0)),
+            syscalls::SYS_GET_BLOCK_HASH,
+        );
+    }
+
+    #[test]
+    fn get_transaction_block_hash_on_chain() {
+        let mut buf = [0u8; 8];
+        assert_on_chain(
+            on_chain::get_transaction_block_hash(&mut buf, &[]),
+            syscalls::SYS_GET_TRANSACTION_BLOCK_HASH,
+        );
+        let tx_hash = Byte32::default();
+        assert_on_chain(
+            with_argv(&[], || high_level::get_transaction_block_hash(tx_hash)),
+            syscalls::SYS_GET_TRANSACTION_BLOCK_HASH,
+        );
+    }
+
+    #[test]
+    fn get_cells_on_chain() {
+        let mut buf = [0u8; 8];
+        assert_on_chain(
+            on_chain::get_cells(&mut buf, &[], 0, 1, &[]),
+            syscalls::SYS_GET_CELLS,
+        );
+        assert_on_chain(
+            with_argv(&[], || high_level::get_cells(&[], 0, 1, &[])),
+            syscalls::SYS_GET_CELLS,
         );
     }
 }

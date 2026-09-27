@@ -1,8 +1,11 @@
 use ckb_std::error::SysError;
 
 use crate::utils;
+use alloc::vec::Vec;
 use catalog::{
     SYS_FIND_CELL_BY_OUT_POINT, SYS_FIND_CELL_DATA_BY_OUT_POINT, SYS_FIND_OUT_POINT_BY_TYPE,
+    SYS_GET_BLOCK_HASH, SYS_GET_CELLS, SYS_GET_HEADER, SYS_GET_HEADER_BY_NUMBER, SYS_GET_LIVE_CELL,
+    SYS_GET_TRANSACTION_BLOCK_HASH, SYS_NETWORK,
 };
 use raw::syscall_load;
 use utils::{catalog, raw};
@@ -103,5 +106,120 @@ pub fn find_cell_data_by_out_point(buf: &mut [u8], out_point: &[u8]) -> Result<u
         0,
         0,
         SYS_FIND_CELL_DATA_BY_OUT_POINT,
+    )
+}
+
+/// CKB net RPC `local_node_info`.
+///
+/// Native injection: the host writes the node info into `buf`.
+/// No query bytes. `a2` through `a6` are zero.
+pub fn network(buf: &mut [u8]) -> Result<usize, SysError> {
+    syscall_load(buf.as_mut_ptr(), buf.len(), 0, 0, 0, 0, 0, SYS_NETWORK)
+}
+
+/// CKB RPC `get_live_cell`.
+///
+/// Native injection: `a2` is the OutPoint, `a3` is `1` when cell data is requested.
+pub fn get_live_cell(buf: &mut [u8], out_point: &[u8], with_data: bool) -> Result<usize, SysError> {
+    syscall_load(
+        buf.as_mut_ptr(),
+        buf.len(),
+        out_point.as_ptr() as usize,
+        u64::from(with_data),
+        0,
+        0,
+        0,
+        SYS_GET_LIVE_CELL,
+    )
+}
+
+/// CKB RPC `get_header`.
+///
+/// Native injection: `a2` is the block hash, `a3` is its length.
+pub fn get_header(buf: &mut [u8], block_hash: &[u8]) -> Result<usize, SysError> {
+    syscall_load(
+        buf.as_mut_ptr(),
+        buf.len(),
+        block_hash.as_ptr() as usize,
+        block_hash.len() as u64,
+        0,
+        0,
+        0,
+        SYS_GET_HEADER,
+    )
+}
+
+/// CKB RPC `get_header_by_number`.
+///
+/// Native injection: `a3` is the block number.
+pub fn get_header_by_number(buf: &mut [u8], block_number: u64) -> Result<usize, SysError> {
+    syscall_load(
+        buf.as_mut_ptr(),
+        buf.len(),
+        0,
+        block_number,
+        0,
+        0,
+        0,
+        SYS_GET_HEADER_BY_NUMBER,
+    )
+}
+
+/// CKB RPC `get_block_hash`.
+///
+/// Native injection: `a3` is the block number. The hash is written into `buf`.
+pub fn get_block_hash(buf: &mut [u8], block_number: u64) -> Result<usize, SysError> {
+    syscall_load(
+        buf.as_mut_ptr(),
+        buf.len(),
+        0,
+        block_number,
+        0,
+        0,
+        0,
+        SYS_GET_BLOCK_HASH,
+    )
+}
+
+/// Block hash from CKB RPC `get_transaction` (`tx_status.block_hash`).
+///
+/// Native injection: `a2` is the transaction hash, `a3` is its length.
+pub fn get_transaction_block_hash(buf: &mut [u8], tx_hash: &[u8]) -> Result<usize, SysError> {
+    syscall_load(
+        buf.as_mut_ptr(),
+        buf.len(),
+        tx_hash.as_ptr() as usize,
+        tx_hash.len() as u64,
+        0,
+        0,
+        0,
+        SYS_GET_TRANSACTION_BLOCK_HASH,
+    )
+}
+
+/// ckb-indexer RPC `get_cells`.
+///
+/// Native injection registers:
+/// `a2` search key, `a3` its length, `a4` order (`0` asc, `1` desc), `a5` limit,
+/// `a6` cursor whose first 4 bytes are the little-endian length of the `after` bytes that follow.
+pub fn get_cells(
+    buf: &mut [u8],
+    search_key: &[u8],
+    order: u64,
+    limit: u64,
+    after: &[u8],
+) -> Result<usize, SysError> {
+    let mut cursor = Vec::with_capacity(4 + after.len());
+    cursor.extend_from_slice(&(after.len() as u32).to_le_bytes());
+    cursor.extend_from_slice(after);
+    syscall_load(
+        buf.as_mut_ptr(),
+        buf.len(),
+        search_key.as_ptr() as usize,
+        search_key.len() as u64,
+        order,
+        limit,
+        cursor.as_ptr() as u64,
+        SYS_GET_CELLS,
     )
 }

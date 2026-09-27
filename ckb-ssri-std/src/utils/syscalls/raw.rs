@@ -1,7 +1,9 @@
+#[cfg(target_arch = "riscv64")]
 use core::arch::asm;
 
 use ckb_std::{ckb_constants::SYS_VM_VERSION, error::SysError};
 
+#[cfg(target_arch = "riscv64")]
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn syscall(
     mut a0: u64,
@@ -25,6 +27,21 @@ pub unsafe fn syscall(
         in("a7") a7
     );
     a0
+}
+
+#[cfg(not(target_arch = "riscv64"))]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn syscall(
+    _a0: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+    _a4: u64,
+    _a5: u64,
+    _a6: u64,
+    _a7: u64,
+) -> u64 {
+    u64::MAX
 }
 
 pub fn vm_version() -> u64 {
