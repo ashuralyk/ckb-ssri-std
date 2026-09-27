@@ -1,12 +1,16 @@
+//! SSRI syscalls.
+//!
+//! [`crate::utils::syscall_branch`] chooses [`native`] or [`on_chain`] for the
+//! same function name. [`catalog`] is the list of syscalls that have both.
+
 // re-export to maintain compatible with old versions
 pub use ckb_std::error::SysError;
 
-#[cfg(not(feature = "native-simulator"))]
-mod native;
-#[cfg(not(feature = "native-simulator"))]
-pub use native::*;
+pub(crate) mod catalog;
+pub mod native;
+pub mod on_chain;
+pub(crate) mod raw;
 
-#[cfg(feature = "native-simulator")]
-mod simulator;
-#[cfg(feature = "native-simulator")]
-pub use simulator::*;
+pub use catalog::*;
+pub use native::*;
+pub use raw::{syscall, vm_version};

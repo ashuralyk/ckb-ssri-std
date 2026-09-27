@@ -1,4 +1,4 @@
-use crate::utils::syscalls;
+use crate::utils;
 use alloc::vec;
 use alloc::vec::Vec;
 use ckb_std::{
@@ -45,7 +45,7 @@ fn load_data<F: Fn(&mut [u8], usize) -> Result<usize, SysError>>(
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// let out_point = find_out_point_by_type(type_script).unwrap();
 /// ```
 ///
@@ -60,7 +60,7 @@ fn load_data<F: Fn(&mut [u8], usize) -> Result<usize, SysError>>(
 /// potentially causing an out-of-memory error.
 pub fn find_out_point_by_type(type_script: Script) -> Result<OutPoint, SysError> {
     let mut data = [0u8; OutPoint::TOTAL_SIZE];
-    syscalls::find_out_point_by_type(&mut data, &type_script.as_slice())?;
+    utils::syscall_branch!(find_out_point_by_type(&mut data, type_script.as_slice()))?;
     match OutPointReader::verify(&data, false) {
         Ok(()) => Ok(OutPoint::new_unchecked(data.to_vec().into())),
         Err(_err) => Err(SysError::Encoding),
@@ -82,7 +82,7 @@ pub fn find_out_point_by_type(type_script: Script) -> Result<OutPoint, SysError>
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// let out_point = OutPoint::new(...);
 /// let cell_output = find_cell_by_out_point(out_point).unwrap();
 /// ```
@@ -97,8 +97,9 @@ pub fn find_out_point_by_type(type_script: Script) -> Result<OutPoint, SysError>
 /// This function can panic if the underlying data is too large,
 /// potentially causing an out-of-memory error.
 pub fn find_cell_by_out_point(out_point: OutPoint) -> Result<CellOutput, SysError> {
-    let data =
-        load_data(|buf, _offset| syscalls::find_cell_by_out_point(buf, out_point.as_slice()))?;
+    let data = load_data(|buf, _offset| {
+        utils::syscall_branch!(find_cell_by_out_point(buf, out_point.as_slice()))
+    })?;
 
     match CellOutputReader::verify(&data, false) {
         Ok(()) => Ok(CellOutput::new_unchecked(data.into())),
@@ -121,7 +122,7 @@ pub fn find_cell_by_out_point(out_point: OutPoint) -> Result<CellOutput, SysErro
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// let out_point = OutPoint::new(...);
 /// let data = find_cell_data_by_out_point(out_point).unwrap();
 /// ```
@@ -136,5 +137,87 @@ pub fn find_cell_by_out_point(out_point: OutPoint) -> Result<CellOutput, SysErro
 /// This function can panic if the underlying data is too large,
 /// potentially causing an out-of-memory error.
 pub fn find_cell_data_by_out_point(out_point: OutPoint) -> Result<Vec<u8>, SysError> {
-    load_data(|buf, _offset| syscalls::find_cell_data_by_out_point(buf, out_point.as_slice()))
+    load_data(|buf, _offset| {
+        utils::syscall_branch!(find_cell_data_by_out_point(buf, out_point.as_slice()))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use crate::utils;
+    use ckb_std::ckb_types;
+    use ckb_std::env;
+    use ckb_types::packed::{OutPoint, Script};
+    use ckb_types::prelude::Entity;
+    use std::sync::Mutex;
+    use utils::{high_level, on_chain, syscalls, SysError};
+
+    static ARGV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_argv<T>(argv: &'static [env::Arg], f: impl FnOnce() -> T) -> T {
+        let _lock = ARGV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        unsafe { env::set_argv(argv) };
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                unsafe { env::set_argv(&[]) }
+            }
+        }
+        let _restore = Restore;
+        f()
+    }
+
+    fn assert_on_chain(result: Result<impl Sized, SysError>, number: u64) {
+        assert_eq!(result.err(), Some(SysError::Unknown(number)));
+    }
+
+    #[test]
+    fn find_out_point_by_type_branches() {
+        let mut buf = [0u8; 64];
+        let script = Script::default().as_slice().to_vec();
+        assert_on_chain(
+            on_chain::find_out_point_by_type(&mut buf, &script),
+            syscalls::SYS_FIND_OUT_POINT_BY_TYPE,
+        );
+
+        let script = Script::default();
+        assert_on_chain(
+            with_argv(&[], || high_level::find_out_point_by_type(script)),
+            syscalls::SYS_FIND_OUT_POINT_BY_TYPE,
+        );
+    }
+
+    #[test]
+    fn find_cell_by_out_point_branches() {
+        let mut buf = [0u8; 64];
+        let out_point = OutPoint::default().as_slice().to_vec();
+        assert_on_chain(
+            on_chain::find_cell_by_out_point(&mut buf, &out_point),
+            syscalls::SYS_FIND_CELL_BY_OUT_POINT,
+        );
+
+        let out_point = OutPoint::default();
+        assert_on_chain(
+            with_argv(&[], || high_level::find_cell_by_out_point(out_point)),
+            syscalls::SYS_FIND_CELL_BY_OUT_POINT,
+        );
+    }
+
+    #[test]
+    fn find_cell_data_by_out_point_branches() {
+        let mut buf = [0u8; 64];
+        let out_point = OutPoint::default().as_slice().to_vec();
+        assert_on_chain(
+            on_chain::find_cell_data_by_out_point(&mut buf, &out_point),
+            syscalls::SYS_FIND_CELL_DATA_BY_OUT_POINT,
+        );
+
+        let out_point = OutPoint::default();
+        assert_on_chain(
+            with_argv(&[], || high_level::find_cell_data_by_out_point(out_point)),
+            syscalls::SYS_FIND_CELL_DATA_BY_OUT_POINT,
+        );
+    }
 }

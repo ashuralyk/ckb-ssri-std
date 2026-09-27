@@ -5,14 +5,12 @@ use ckb_std::ckb_types::{
 extern crate alloc;
 
 use alloc::vec::Vec;
-use alloc::string::String;
 use serde::{Deserialize, Serialize};
-use serde_molecule::dynvec_serde;
 
 /// User-Defined Token (UDT) trait for implementing custom tokens on CKB
 ///
 /// This trait defines the standard interface for implementing fungible tokens
-/// on the CKB blockchain following the SSRI protocol. 
+/// on the CKB blockchain following the SSRI protocol.
 ///
 /// # Implementation Notes
 ///
@@ -23,7 +21,7 @@ use serde_molecule::dynvec_serde;
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// use ckb_ssri_std::public_module_traits::udt::UDT;
 ///
 /// struct MyToken;
@@ -80,7 +78,7 @@ pub trait UDTPausable: UDT {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UDTPausableData {
     pub pause_list: Vec<[u8; 32]>,
-    pub next_type_script: Option<ScriptLike>
+    pub next_type_script: Option<ScriptLike>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
