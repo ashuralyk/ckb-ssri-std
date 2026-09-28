@@ -1,6 +1,6 @@
 use ckb_std::error::SysError;
 
-use crate::utils::{
+use crate::{
     indexer::{Order, SearchKey},
     syscalls::{catalog::*, raw::syscall_load},
 };
@@ -196,7 +196,7 @@ pub fn get_transaction_block_hash(buf: &mut [u8], tx_hash: &[u8]) -> Result<usiz
 /// ckb-indexer RPC `get_cells`.
 ///
 /// Native injection registers:
-/// `a2` is [`crate::utils::SearchKey`] molecule bytes, `a3` their length,
+/// `a2` is [`crate::indexer::SearchKey`] molecule bytes, `a3` their length,
 /// `a4` [`Order`] (`0` asc, `1` desc), `a5` limit,
 /// `a6` cursor whose first 4 bytes are the little-endian length of the `after` bytes that follow.
 pub fn get_cells(

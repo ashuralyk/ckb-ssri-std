@@ -1,6 +1,6 @@
 use crate::{
+    indexer::{LiveCell, Order, Pagination, SearchKey},
     syscall_branch,
-    utils::indexer::{LiveCell, Order, Pagination, SearchKey},
 };
 use alloc::{vec, vec::Vec};
 use ckb_std::{

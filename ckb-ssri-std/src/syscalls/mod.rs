@@ -1,6 +1,6 @@
 //! SSRI syscalls.
 //!
-//! [`crate::utils::syscall_branch`] chooses [`native`] or [`on_chain`] for the
+//! [`crate::syscall_branch`] chooses [`native`] or [`on_chain`] for the
 //! same function name. [`catalog`] is the list of syscalls that have both.
 
 // re-export to maintain compatible with old versions

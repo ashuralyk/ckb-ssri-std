@@ -4,7 +4,7 @@ use ckb_std::{
     error::SysError,
 };
 
-use crate::utils::{
+use crate::{
     indexer::{
         IndexerCell, LiveCell, Order, Pagination, Script, ScriptType, SearchKey, SearchMode,
     },
@@ -180,7 +180,7 @@ mod tests {
 
     use super::{cells_page, live_cell};
 
-    use crate::utils::{
+    use crate::{
         indexer::{
             CellOutput, LiveCell, Order, OutPoint, Pagination, Script, ScriptType, SearchKey,
             SearchKeyFilter, SearchMode,

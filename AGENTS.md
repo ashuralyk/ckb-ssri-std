@@ -17,6 +17,6 @@
 - Native backends use host/indexer-style injection; on-chain backends resolve the same meaning from the current transaction (cell deps, header deps, and related fields).
 - Host builds gate RISC-V `ecall` assembly behind `target_arch = "riscv64"` and stub otherwise.
 - The catalog includes CKB/ckb-indexer-aligned SSRI syscalls such as `network`, `get_live_cell`, `get_header`, `get_header_by_number`, `get_block_hash`, `get_transaction_block_hash`, and `get_cells`.
-- Indexer JSON response types (cell/pagination shapes) live in `utils/indexer.rs` without a `Json` prefix; hex script naming avoids clashing with molecule `Script` (e.g. `HexScript`).
+- Indexer JSON response types (cell/pagination shapes) live in `indexer.rs` without a `Json` prefix; hex script naming avoids clashing with molecule `Script` (e.g. `HexScript`).
 - `get_cells` search keys use a `serde_molecule` type matching ckb-indexer's `SearchKey` layout.
 - Syscall return buffers for indexer-aligned methods (`get_cells`, `get_live_cell`) target ckb-indexer RPC JSON bytes; molecule `LiveCell` is a post-parse client type, not the syscall payload.

@@ -8,7 +8,7 @@ use ckb_std::{
     high_level::{self, QueryIter},
 };
 
-use crate::utils::indexer::{Order, SearchKey};
+use crate::indexer::{Order, SearchKey};
 
 mod context;
 mod pagination;
@@ -77,7 +77,7 @@ pub fn network(buf: &mut [u8]) -> Result<usize, SysError> {
 
 /// On-chain adaptation of `get_live_cell`.
 ///
-/// Molecule [`crate::utils::LiveCell`] for that out point in a code cell dep or an input.
+/// Molecule [`crate::indexer::LiveCell`] for that out point in a code cell dep or an input.
 /// A missing cell has no output. `with_data` includes the cell data.
 pub fn get_live_cell(buf: &mut [u8], out_point: &[u8], with_data: bool) -> Result<usize, SysError> {
     let out_point = OutPoint::from_compatible_slice(out_point).map_err(|_| SysError::Encoding)?;
@@ -151,7 +151,7 @@ pub fn get_transaction_block_hash(buf: &mut [u8], tx_hash: &[u8]) -> Result<usiz
 /// On-chain adaptation of `get_cells`.
 ///
 /// `search_key` is [`SearchKey`] molecule bytes. The buffer receives the molecule
-/// encoding of [`crate::utils::Pagination`] for matching code cell deps, then inputs.
+/// encoding of [`crate::indexer::Pagination`] for matching code cell deps, then inputs.
 pub fn get_cells(
     buf: &mut [u8],
     search_key: &SearchKey,

@@ -12,7 +12,6 @@
 //!
 //! ## Features
 //!
-//! - **Public Traits**: Pre-defined interfaces that receive first-class support within the ecosystem
 //! - **Utility Functions**: Helper functions for SSRI-VM syscalls and data handling
 //! - **Procedural Macros**: Simplify contract development with automatic SSRI method generation
 //!
@@ -27,15 +26,46 @@
 //! ## Example
 //! [`pausable-udt`](https://github.com/ckb-devrel/pausable-udt) is a real production level contract (instead of a pseudo-project) that exemplifies the usage of SSRI.
 
+pub mod high_level;
+pub mod indexer;
 pub mod macros;
 pub mod prelude;
-pub mod public_module_traits;
-pub mod utils;
+pub mod syscalls;
 
 // Re-export proc macros at crate root for convenience
 pub use macros::*;
 
 extern crate alloc;
+
+use ckb_std::debug;
+
+/// Choose the on-chain or native-injection syscall of the same name.
+///
+/// `should_fallback` is the environment check: `Ok(true)` calls `on_chain::$name`,
+/// `Ok(false)` calls `native::$name`. `InvalidVmVersion` becomes `SysError::Unknown(u64::MAX)`.
+#[macro_export]
+macro_rules! syscall_branch {
+    ($name:ident($($arg:expr),* $(,)?)) => {{
+        use $crate::{syscalls::{native, on_chain}, should_fallback};
+        match should_fallback() {
+            Ok(true) => on_chain::$name($($arg),*),
+            Ok(false) => native::$name($($arg),*),
+            Err(_) => Err(ckb_std::error::SysError::Unknown(u64::MAX)),
+        }
+    }};
+}
+
+pub fn should_fallback() -> Result<bool, SSRIError> {
+    if ckb_std::env::argv().is_empty() {
+        debug!("Should fallback!");
+        Ok(true)
+    } else if syscalls::raw::vm_version() != u64::MAX {
+        Err(SSRIError::InvalidVmVersion)
+    } else {
+        debug!("Should not fallback!");
+        Ok(false)
+    }
+}
 
 #[repr(i8)]
 #[derive(Debug)]

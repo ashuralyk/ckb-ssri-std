@@ -6,6 +6,7 @@ description = "Procedural macros for CKB SSRI std"
 license = "MIT"
 repository = "https://github.com/ckb-devrel/ckb-ssri-std"
 documentation = "https://github.com/ckb-devrel/ckb-ssri-std"
+readme = "README.md"
 authors = ["Alive24 <xct24@live.com>"]
 keywords = ["ckb", "nervos", "blockchain", "smart-contracts", "ssri"]
 categories = ["cryptography::cryptocurrencies", "development-tools"]
