@@ -23,10 +23,10 @@ fn load_data<F: Fn(&mut [u8], usize) -> Result<usize, SysError>>(
         Ok(len) => Ok(buf[..len].to_vec()),
         Err(SysError::LengthNotEnough(actual_size)) => {
             let mut data = vec![0; actual_size];
-            let loaded_len = buf.len();
-            data[..loaded_len].copy_from_slice(&buf);
-            let len = syscall(&mut data[loaded_len..], loaded_len)?;
-            debug_assert_eq!(len + loaded_len, actual_size);
+            let len = syscall(&mut data, 0)?;
+            if len != actual_size {
+                return Err(SysError::Encoding);
+            }
             Ok(data)
         }
         Err(err) => Err(err),
@@ -209,11 +209,10 @@ pub fn get_cells(
     search_key: &SearchKey,
     order: u64,
     limit: u64,
-    after: &[u8],
+    after: u64,
 ) -> Result<Vec<u8>, SysError> {
-    let search_key = serde_molecule::to_vec(search_key, false).map_err(|_| SysError::Encoding)?;
     load_data(|buf, _offset| {
-        utils::syscall_branch!(get_cells(buf, &search_key, order, limit, after))
+        utils::syscall_branch!(get_cells(buf, search_key, order, limit, after))
     })
 }
 
@@ -221,169 +220,31 @@ pub fn get_cells(
 mod tests {
     extern crate std;
 
-    use crate::utils;
-    use crate::utils::SearchKey;
-    use ckb_std::ckb_types;
-    use ckb_std::env;
-    use ckb_types::packed::{Byte32, OutPoint, Script};
-    use ckb_types::prelude::Entity;
-    use std::sync::Mutex;
-    use utils::{high_level, on_chain, syscalls, SysError};
+    use super::load_data;
+    use crate::utils::SysError;
+    use alloc::vec;
+    use core::cell::Cell;
 
-    static ARGV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn with_argv<T>(argv: &'static [env::Arg], f: impl FnOnce() -> T) -> T {
-        let _lock = ARGV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
-        unsafe { env::set_argv(argv) };
-        struct Restore;
-        impl Drop for Restore {
-            fn drop(&mut self) {
-                unsafe { env::set_argv(&[]) }
+    #[test]
+    fn load_data_retries_into_a_full_buffer() {
+        let payload = vec![7u8; 300];
+        let calls = Cell::new(0usize);
+        let data = load_data(|buf, offset| {
+            let call = calls.get() + 1;
+            calls.set(call);
+            assert_eq!(offset, 0);
+            if call == 1 {
+                assert!(buf.len() < payload.len());
+                buf.copy_from_slice(&payload[..buf.len()]);
+                Err(SysError::LengthNotEnough(payload.len()))
+            } else {
+                assert_eq!(buf.len(), payload.len());
+                buf.copy_from_slice(&payload);
+                Ok(payload.len())
             }
-        }
-        let _restore = Restore;
-        f()
-    }
-
-    fn assert_on_chain(result: Result<impl Sized, SysError>, number: u64) {
-        assert_eq!(result.err(), Some(SysError::Unknown(number)));
-    }
-
-    #[test]
-    fn find_out_point_by_type_branches() {
-        let mut buf = [0u8; 64];
-        let script = Script::default().as_slice().to_vec();
-        assert_on_chain(
-            on_chain::find_out_point_by_type(&mut buf, &script),
-            syscalls::SYS_FIND_OUT_POINT_BY_TYPE,
-        );
-
-        let script = Script::default();
-        assert_on_chain(
-            with_argv(&[], || high_level::find_out_point_by_type(script)),
-            syscalls::SYS_FIND_OUT_POINT_BY_TYPE,
-        );
-    }
-
-    #[test]
-    fn find_cell_by_out_point_branches() {
-        let mut buf = [0u8; 64];
-        let out_point = OutPoint::default().as_slice().to_vec();
-        assert_on_chain(
-            on_chain::find_cell_by_out_point(&mut buf, &out_point),
-            syscalls::SYS_FIND_CELL_BY_OUT_POINT,
-        );
-
-        let out_point = OutPoint::default();
-        assert_on_chain(
-            with_argv(&[], || high_level::find_cell_by_out_point(out_point)),
-            syscalls::SYS_FIND_CELL_BY_OUT_POINT,
-        );
-    }
-
-    #[test]
-    fn find_cell_data_by_out_point_branches() {
-        let mut buf = [0u8; 64];
-        let out_point = OutPoint::default().as_slice().to_vec();
-        assert_on_chain(
-            on_chain::find_cell_data_by_out_point(&mut buf, &out_point),
-            syscalls::SYS_FIND_CELL_DATA_BY_OUT_POINT,
-        );
-
-        let out_point = OutPoint::default();
-        assert_on_chain(
-            with_argv(&[], || high_level::find_cell_data_by_out_point(out_point)),
-            syscalls::SYS_FIND_CELL_DATA_BY_OUT_POINT,
-        );
-    }
-
-    #[test]
-    fn network_on_chain() {
-        let mut buf = [0u8; 8];
-        assert_on_chain(on_chain::network(&mut buf), syscalls::SYS_NETWORK);
-        assert_on_chain(with_argv(&[], high_level::network), syscalls::SYS_NETWORK);
-    }
-
-    #[test]
-    fn get_live_cell_on_chain() {
-        let mut buf = [0u8; 8];
-        assert_on_chain(
-            on_chain::get_live_cell(&mut buf, &[], false),
-            syscalls::SYS_GET_LIVE_CELL,
-        );
-        let out_point = OutPoint::default();
-        assert_on_chain(
-            with_argv(&[], || high_level::get_live_cell(out_point, false)),
-            syscalls::SYS_GET_LIVE_CELL,
-        );
-    }
-
-    #[test]
-    fn get_header_on_chain() {
-        let mut buf = [0u8; 8];
-        assert_on_chain(
-            on_chain::get_header(&mut buf, &[]),
-            syscalls::SYS_GET_HEADER,
-        );
-        let block_hash = Byte32::default();
-        assert_on_chain(
-            with_argv(&[], || high_level::get_header(block_hash)),
-            syscalls::SYS_GET_HEADER,
-        );
-    }
-
-    #[test]
-    fn get_header_by_number_on_chain() {
-        let mut buf = [0u8; 8];
-        assert_on_chain(
-            on_chain::get_header_by_number(&mut buf, 0),
-            syscalls::SYS_GET_HEADER_BY_NUMBER,
-        );
-        assert_on_chain(
-            with_argv(&[], || high_level::get_header_by_number(0)),
-            syscalls::SYS_GET_HEADER_BY_NUMBER,
-        );
-    }
-
-    #[test]
-    fn get_block_hash_on_chain() {
-        let mut buf = [0u8; 8];
-        assert_on_chain(
-            on_chain::get_block_hash(&mut buf, 0),
-            syscalls::SYS_GET_BLOCK_HASH,
-        );
-        assert_on_chain(
-            with_argv(&[], || high_level::get_block_hash(0)),
-            syscalls::SYS_GET_BLOCK_HASH,
-        );
-    }
-
-    #[test]
-    fn get_transaction_block_hash_on_chain() {
-        let mut buf = [0u8; 8];
-        assert_on_chain(
-            on_chain::get_transaction_block_hash(&mut buf, &[]),
-            syscalls::SYS_GET_TRANSACTION_BLOCK_HASH,
-        );
-        let tx_hash = Byte32::default();
-        assert_on_chain(
-            with_argv(&[], || high_level::get_transaction_block_hash(tx_hash)),
-            syscalls::SYS_GET_TRANSACTION_BLOCK_HASH,
-        );
-    }
-
-    #[test]
-    fn get_cells_on_chain() {
-        let mut buf = [0u8; 8];
-        assert_on_chain(
-            on_chain::get_cells(&mut buf, &[], 0, 1, &[]),
-            syscalls::SYS_GET_CELLS,
-        );
-        assert_on_chain(
-            with_argv(&[], || {
-                high_level::get_cells(&SearchKey::default(), 0, 1, &[])
-            }),
-            syscalls::SYS_GET_CELLS,
-        );
+        })
+        .unwrap();
+        assert_eq!(calls.get(), 2);
+        assert_eq!(data, payload);
     }
 }

@@ -1,6 +1,6 @@
 use ckb_std::error::SysError;
 
-use crate::utils;
+use crate::utils::{self, SearchKey};
 use alloc::vec::Vec;
 use catalog::{
     SYS_FIND_CELL_BY_OUT_POINT, SYS_FIND_CELL_DATA_BY_OUT_POINT, SYS_FIND_OUT_POINT_BY_TYPE,
@@ -205,14 +205,15 @@ pub fn get_transaction_block_hash(buf: &mut [u8], tx_hash: &[u8]) -> Result<usiz
 /// `a6` cursor whose first 4 bytes are the little-endian length of the `after` bytes that follow.
 pub fn get_cells(
     buf: &mut [u8],
-    search_key: &[u8],
+    search_key: &SearchKey,
     order: u64,
     limit: u64,
-    after: &[u8],
+    after: u64,
 ) -> Result<usize, SysError> {
-    let mut cursor = Vec::with_capacity(4 + after.len());
-    cursor.extend_from_slice(&(after.len() as u32).to_le_bytes());
-    cursor.extend_from_slice(after);
+    let mut cursor = Vec::with_capacity(4 + 8);
+    cursor.extend_from_slice(&(8 as u32).to_le_bytes());
+    cursor.extend_from_slice(&after.to_le_bytes());
+    let search_key = serde_molecule::to_vec(search_key, false).map_err(|_| SysError::Encoding)?;
     syscall_load(
         buf.as_mut_ptr(),
         buf.len(),
