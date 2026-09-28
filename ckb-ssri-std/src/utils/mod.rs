@@ -7,7 +7,10 @@ pub mod high_level;
 pub mod indexer;
 pub mod syscalls;
 
-pub use indexer::{Script, ScriptType, SearchKey, SearchKeyFilter, SearchMode};
+pub use indexer::{
+    CellOutput, IndexerCell, LiveCell, Order, OutPoint, Pagination, Script, ScriptType, SearchKey,
+    SearchKeyFilter, SearchMode,
+};
 
 pub(crate) use syscalls::{catalog, native, on_chain, raw, SysError};
 

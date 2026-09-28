@@ -8,7 +8,7 @@ use ckb_std::{
     high_level::{self, QueryIter},
 };
 
-use crate::utils::SearchKey;
+use crate::utils::{Order, SearchKey};
 
 mod context;
 mod pagination;
@@ -77,16 +77,17 @@ pub fn network(buf: &mut [u8]) -> Result<usize, SysError> {
 
 /// On-chain adaptation of `get_live_cell`.
 ///
-/// JSON `CellWithStatus` for that out point in a code cell dep or an input.
-/// A missing cell is `status: unknown`. `with_data` includes `cell.data`.
+/// Molecule [`crate::utils::LiveCell`] for that out point in a code cell dep or an input.
+/// A missing cell has no output. `with_data` includes the cell data.
 pub fn get_live_cell(buf: &mut [u8], out_point: &[u8], with_data: bool) -> Result<usize, SysError> {
     let out_point = OutPoint::from_compatible_slice(out_point).map_err(|_| SysError::Encoding)?;
     let cells = load_celldep_and_input_cells()?;
     let cell = cells
         .iter()
         .find(|cell| cell.out_point.as_slice() == out_point.as_slice());
-    let json = pagination::live_cell_json(cell, with_data)?;
-    write_bytes(buf, &json)
+    let encoded = serde_molecule::to_vec(&pagination::live_cell(cell, with_data), false)
+        .map_err(|_| SysError::Encoding)?;
+    write_bytes(buf, &encoded)
 }
 
 /// On-chain adaptation of `get_header`.
@@ -149,16 +150,17 @@ pub fn get_transaction_block_hash(buf: &mut [u8], tx_hash: &[u8]) -> Result<usiz
 
 /// On-chain adaptation of `get_cells`.
 ///
-/// `search_key` is [`SearchKey`] molecule bytes. The buffer receives JSON
-/// `{"objects","last_cursor"}` for matching code cell deps, then inputs.
+/// `search_key` is [`SearchKey`] molecule bytes. The buffer receives the molecule
+/// encoding of [`crate::utils::Pagination`] for matching code cell deps, then inputs.
 pub fn get_cells(
     buf: &mut [u8],
     search_key: &SearchKey,
-    order: u64,
+    order: Order,
     limit: u64,
     after: u64,
 ) -> Result<usize, SysError> {
     let cells = load_celldep_and_input_cells()?;
     let searched_cells = pagination::cells_page(&cells, search_key, order, limit, after)?;
-    write_bytes(buf, &searched_cells)
+    let encoded = serde_molecule::to_vec(&searched_cells, false).map_err(|_| SysError::Encoding)?;
+    write_bytes(buf, &encoded)
 }

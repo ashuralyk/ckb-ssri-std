@@ -1,6 +1,6 @@
 use ckb_std::error::SysError;
 
-use crate::utils::{self, SearchKey};
+use crate::utils::{self, Order, SearchKey};
 use alloc::vec::Vec;
 use catalog::{
     SYS_FIND_CELL_BY_OUT_POINT, SYS_FIND_CELL_DATA_BY_OUT_POINT, SYS_FIND_OUT_POINT_BY_TYPE,
@@ -201,12 +201,12 @@ pub fn get_transaction_block_hash(buf: &mut [u8], tx_hash: &[u8]) -> Result<usiz
 ///
 /// Native injection registers:
 /// `a2` is [`crate::utils::SearchKey`] molecule bytes, `a3` their length,
-/// `a4` order (`0` asc, `1` desc), `a5` limit,
+/// `a4` [`Order`] (`0` asc, `1` desc), `a5` limit,
 /// `a6` cursor whose first 4 bytes are the little-endian length of the `after` bytes that follow.
 pub fn get_cells(
     buf: &mut [u8],
     search_key: &SearchKey,
-    order: u64,
+    order: Order,
     limit: u64,
     after: u64,
 ) -> Result<usize, SysError> {
@@ -219,7 +219,7 @@ pub fn get_cells(
         buf.len(),
         search_key.as_ptr() as usize,
         search_key.len() as u64,
-        order,
+        order as u64,
         limit,
         cursor.as_ptr() as u64,
         SYS_GET_CELLS,

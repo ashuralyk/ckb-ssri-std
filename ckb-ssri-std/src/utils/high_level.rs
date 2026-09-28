@@ -1,7 +1,5 @@
-use crate::utils;
-use crate::utils::SearchKey;
-use alloc::vec;
-use alloc::vec::Vec;
+use crate::utils::{syscall_branch, LiveCell, Order, Pagination, SearchKey};
+use alloc::{vec, vec::Vec};
 use ckb_std::{
     ckb_types::{
         packed::{
@@ -64,7 +62,7 @@ fn load_data<F: Fn(&mut [u8], usize) -> Result<usize, SysError>>(
 /// potentially causing an out-of-memory error.
 pub fn find_out_point_by_type(type_script: Script) -> Result<OutPoint, SysError> {
     let mut data = [0u8; OutPoint::TOTAL_SIZE];
-    utils::syscall_branch!(find_out_point_by_type(&mut data, type_script.as_slice()))?;
+    syscall_branch!(find_out_point_by_type(&mut data, type_script.as_slice()))?;
     match OutPointReader::verify(&data, false) {
         Ok(()) => Ok(OutPoint::new_unchecked(data.to_vec().into())),
         Err(_err) => Err(SysError::Encoding),
@@ -102,7 +100,7 @@ pub fn find_out_point_by_type(type_script: Script) -> Result<OutPoint, SysError>
 /// potentially causing an out-of-memory error.
 pub fn find_cell_by_out_point(out_point: OutPoint) -> Result<CellOutput, SysError> {
     let data = load_data(|buf, _offset| {
-        utils::syscall_branch!(find_cell_by_out_point(buf, out_point.as_slice()))
+        syscall_branch!(find_cell_by_out_point(buf, out_point.as_slice()))
     })?;
 
     match CellOutputReader::verify(&data, false) {
@@ -142,28 +140,28 @@ pub fn find_cell_by_out_point(out_point: OutPoint) -> Result<CellOutput, SysErro
 /// potentially causing an out-of-memory error.
 pub fn find_cell_data_by_out_point(out_point: OutPoint) -> Result<Vec<u8>, SysError> {
     load_data(|buf, _offset| {
-        utils::syscall_branch!(find_cell_data_by_out_point(buf, out_point.as_slice()))
+        syscall_branch!(find_cell_data_by_out_point(buf, out_point.as_slice()))
     })
 }
 
 /// CKB net RPC `local_node_info`.
 pub fn network() -> Result<Vec<u8>, SysError> {
-    load_data(|buf, _offset| utils::syscall_branch!(network(buf)))
+    load_data(|buf, _offset| syscall_branch!(network(buf)))
 }
 
 /// CKB RPC `get_live_cell`.
 ///
-/// `with_data` asks the host to include the cell data in the returned bytes.
-pub fn get_live_cell(out_point: OutPoint, with_data: bool) -> Result<Vec<u8>, SysError> {
-    load_data(|buf, _offset| {
-        utils::syscall_branch!(get_live_cell(buf, out_point.as_slice(), with_data))
-    })
+/// Returns a molecule [`LiveCell`]. `with_data` includes the cell data.
+pub fn get_live_cell(out_point: OutPoint, with_data: bool) -> Result<LiveCell, SysError> {
+    let data = load_data(|buf, _offset| {
+        syscall_branch!(get_live_cell(buf, out_point.as_slice(), with_data))
+    })?;
+    serde_molecule::from_slice(&data, false).map_err(|_| SysError::Encoding)
 }
 
 /// CKB RPC `get_header`.
 pub fn get_header(block_hash: Byte32) -> Result<Header, SysError> {
-    let data =
-        load_data(|buf, _offset| utils::syscall_branch!(get_header(buf, block_hash.as_slice())))?;
+    let data = load_data(|buf, _offset| syscall_branch!(get_header(buf, block_hash.as_slice())))?;
     match HeaderReader::verify(&data, false) {
         Ok(()) => Ok(Header::new_unchecked(data.into())),
         Err(_err) => Err(SysError::Encoding),
@@ -172,8 +170,7 @@ pub fn get_header(block_hash: Byte32) -> Result<Header, SysError> {
 
 /// CKB RPC `get_header_by_number`.
 pub fn get_header_by_number(block_number: u64) -> Result<Header, SysError> {
-    let data =
-        load_data(|buf, _offset| utils::syscall_branch!(get_header_by_number(buf, block_number)))?;
+    let data = load_data(|buf, _offset| syscall_branch!(get_header_by_number(buf, block_number)))?;
     match HeaderReader::verify(&data, false) {
         Ok(()) => Ok(Header::new_unchecked(data.into())),
         Err(_err) => Err(SysError::Encoding),
@@ -183,7 +180,7 @@ pub fn get_header_by_number(block_number: u64) -> Result<Header, SysError> {
 /// CKB RPC `get_block_hash`.
 pub fn get_block_hash(block_number: u64) -> Result<Byte32, SysError> {
     let mut data = [0u8; Byte32::TOTAL_SIZE];
-    utils::syscall_branch!(get_block_hash(&mut data, block_number))?;
+    syscall_branch!(get_block_hash(&mut data, block_number))?;
     match Byte32Reader::verify(&data, false) {
         Ok(()) => Ok(Byte32::new_unchecked(data.to_vec().into())),
         Err(_err) => Err(SysError::Encoding),
@@ -193,7 +190,7 @@ pub fn get_block_hash(block_number: u64) -> Result<Byte32, SysError> {
 /// Block hash of a committed transaction, from `get_transaction`'s `tx_status.block_hash`.
 pub fn get_transaction_block_hash(tx_hash: Byte32) -> Result<Byte32, SysError> {
     let mut data = [0u8; Byte32::TOTAL_SIZE];
-    utils::syscall_branch!(get_transaction_block_hash(&mut data, tx_hash.as_slice()))?;
+    syscall_branch!(get_transaction_block_hash(&mut data, tx_hash.as_slice()))?;
     match Byte32Reader::verify(&data, false) {
         Ok(()) => Ok(Byte32::new_unchecked(data.to_vec().into())),
         Err(_err) => Err(SysError::Encoding),
@@ -202,18 +199,18 @@ pub fn get_transaction_block_hash(tx_hash: Byte32) -> Result<Byte32, SysError> {
 
 /// ckb-indexer RPC `get_cells`.
 ///
-/// `search_key` is encoded as the molecule table in [`SearchKey`], which has the
-/// same fields as ckb-indexer's search key. `order` is `0` for ascending and `1`
-/// for descending. `after` is the pagination cursor.
+/// Returns a [`Pagination`] of molecule cells. `search_key` is the molecule table
+/// in [`SearchKey`]. `order` is [`Order::Asc`] or [`Order::Desc`].
+/// `after` is the pagination cursor.
 pub fn get_cells(
     search_key: &SearchKey,
-    order: u64,
+    order: Order,
     limit: u64,
     after: u64,
-) -> Result<Vec<u8>, SysError> {
-    load_data(|buf, _offset| {
-        utils::syscall_branch!(get_cells(buf, search_key, order, limit, after))
-    })
+) -> Result<Pagination, SysError> {
+    let data =
+        load_data(|buf, _offset| syscall_branch!(get_cells(buf, search_key, order, limit, after)))?;
+    serde_molecule::from_slice(&data, false).map_err(|_| SysError::Encoding)
 }
 
 #[cfg(test)]

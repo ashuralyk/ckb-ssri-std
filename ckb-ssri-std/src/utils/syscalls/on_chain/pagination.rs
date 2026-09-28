@@ -1,53 +1,55 @@
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 use ckb_std::{
     ckb_types::{packed::Script as PackedScript, prelude::*},
     error::SysError,
 };
-use serde::Serialize;
 
-use crate::utils::{on_chain::LoadedCell, Script, ScriptType, SearchKey, SearchMode};
+use crate::utils::{
+    on_chain::LoadedCell, IndexerCell, LiveCell, Order, Pagination, Script, ScriptType, SearchKey,
+    SearchMode,
+};
 
-const HEX: &[u8; 16] = b"0123456789abcdef";
+impl TryFrom<(&LoadedCell, bool)> for IndexerCell {
+    type Error = SysError;
 
-pub(crate) fn live_cell_json(
-    cell: Option<&LoadedCell>,
-    with_data: bool,
-) -> Result<Vec<u8>, SysError> {
-    let body = match cell {
-        Some(cell) => JsonCellWithStatus {
-            cell: Some(JsonCellInfo {
-                data: cell_data_json(cell, with_data)?,
-                output: json_output(&cell.output)?,
-            }),
-            status: "live",
-            block_hash: cell.block_hash.map(|hash| hex_bytes(&hash)),
-        },
-        None => JsonCellWithStatus {
-            cell: None,
-            status: "unknown",
-            block_hash: None,
-        },
-    };
-    serde_json::to_vec(&body).map_err(|_| SysError::Encoding)
+    fn try_from((cell, with_data): (&LoadedCell, bool)) -> Result<Self, SysError> {
+        Ok(Self {
+            output: cell.output.clone().into(),
+            output_data: with_data.then(|| cell.data.clone()),
+            out_point: cell.out_point.clone().into(),
+            block_number: cell.block_number.unwrap_or(0),
+            tx_index: 0,
+        })
+    }
 }
 
-pub(crate) fn cells_page(
+pub fn live_cell(cell: Option<&LoadedCell>, with_data: bool) -> LiveCell {
+    match cell {
+        Some(cell) => LiveCell {
+            output: Some(cell.output.clone().into()),
+            data: with_data.then(|| cell.data.clone()),
+            block_hash: cell.block_hash,
+        },
+        None => LiveCell {
+            output: None,
+            data: None,
+            block_hash: None,
+        },
+    }
+}
+
+pub fn cells_page(
     cells: &[LoadedCell],
     key: &SearchKey,
-    order: u64,
+    order: Order,
     limit: u64,
     start: u64,
-) -> Result<Vec<u8>, SysError> {
-    let descending = match order {
-        0 => false,
-        1 => true,
-        _ => return Err(SysError::IndexOutOfBound),
-    };
+) -> Result<Pagination, SysError> {
     let mut matched: Vec<&LoadedCell> = cells
         .iter()
         .filter(|cell| cell_matches(key, cell))
         .collect();
-    if descending {
+    if matches!(order, Order::Desc) {
         matched.reverse();
     }
     let total = matched.len() as u64;
@@ -55,17 +57,16 @@ pub(crate) fn cells_page(
     let with_data = key.with_data.unwrap_or(true);
     let mut objects = Vec::with_capacity(page.len());
     for cell in page {
-        objects.push(json_indexer_cell(cell, with_data)?);
+        objects.push(IndexerCell::try_from((cell, with_data))?);
     }
-    let body = JsonPagination {
+    Ok(Pagination {
         objects,
         last_cursor: if next >= total {
-            String::from("0x")
+            Vec::new()
         } else {
-            hex_le_u64(next)
+            next.to_le_bytes().to_vec()
         },
-    };
-    serde_json::to_vec(&body).map_err(|_| SysError::Encoding)
+    })
 }
 
 fn page_window<'a>(
@@ -90,14 +91,28 @@ fn page_window<'a>(
 
 fn cell_matches(key: &SearchKey, cell: &LoadedCell) -> bool {
     let mode = key.script_search_mode.unwrap_or(SearchMode::Prefix);
-    if !primary_matches(key.script_type, mode, &key.script, cell) {
+    let primary = match key.script_type {
+        ScriptType::Lock => script_matches(mode, &key.script, &cell.output.lock()),
+        ScriptType::Type => cell
+            .output
+            .type_()
+            .to_opt()
+            .is_some_and(|script| script_matches(mode, &key.script, &script)),
+    };
+    if !primary {
         return false;
     }
     let Some(filter) = &key.filter else {
         return true;
     };
     if let Some(script) = &filter.script {
-        if !secondary_matches(key.script_type, script, cell) {
+        let secondary = match key.script_type {
+            ScriptType::Lock => cell.output.type_().to_opt().is_some_and(|type_script| {
+                script_matches(SearchMode::Prefix, script, &type_script)
+            }),
+            ScriptType::Type => script_matches(SearchMode::Prefix, script, &cell.output.lock()),
+        };
+        if !secondary {
             return false;
         }
     }
@@ -115,38 +130,22 @@ fn cell_matches(key: &SearchKey, cell: &LoadedCell) -> bool {
     }
     if let Some(output_data) = &filter.output_data {
         let mode = filter.output_data_filter_mode.unwrap_or(SearchMode::Prefix);
-        if !bytes_match(mode, output_data, &cell.data) {
+        let matched = match mode {
+            SearchMode::Exact => cell.data == *output_data,
+            SearchMode::Prefix => cell.data.starts_with(output_data),
+            SearchMode::Partial => {
+                output_data.is_empty()
+                    || cell
+                        .data
+                        .windows(output_data.len())
+                        .any(|window| window == output_data)
+            }
+        };
+        if !matched {
             return false;
         }
     }
     true
-}
-
-fn primary_matches(
-    script_type: ScriptType,
-    mode: SearchMode,
-    query: &Script,
-    cell: &LoadedCell,
-) -> bool {
-    match script_type {
-        ScriptType::Lock => script_matches(mode, query, &cell.output.lock()),
-        ScriptType::Type => cell
-            .output
-            .type_()
-            .to_opt()
-            .is_some_and(|script| script_matches(mode, query, &script)),
-    }
-}
-
-fn secondary_matches(script_type: ScriptType, query: &Script, cell: &LoadedCell) -> bool {
-    match script_type {
-        ScriptType::Lock => cell
-            .output
-            .type_()
-            .to_opt()
-            .is_some_and(|script| script_matches(SearchMode::Prefix, query, &script)),
-        ScriptType::Type => script_matches(SearchMode::Prefix, query, &cell.output.lock()),
-    }
 }
 
 fn script_matches(mode: SearchMode, query: &Script, cell: &PackedScript) -> bool {
@@ -156,170 +155,33 @@ fn script_matches(mode: SearchMode, query: &Script, cell: &PackedScript) -> bool
     if cell.hash_type().as_slice()[0] != query.hash_type {
         return false;
     }
-    bytes_match(mode, &query.args, cell.args().raw_data().as_ref())
-}
-
-fn bytes_match(mode: SearchMode, query: &[u8], cell: &[u8]) -> bool {
+    let args = cell.args().raw_data();
+    let cell_args = args.as_ref();
     match mode {
-        SearchMode::Exact => cell == query,
-        SearchMode::Prefix => cell.starts_with(query),
+        SearchMode::Exact => cell_args == query.args,
+        SearchMode::Prefix => cell_args.starts_with(&query.args),
         SearchMode::Partial => {
-            if query.is_empty() {
-                true
-            } else {
-                cell.windows(query.len()).any(|window| window == query)
-            }
+            query.args.is_empty()
+                || cell_args
+                    .windows(query.args.len())
+                    .any(|window| window == query.args)
         }
     }
-}
-
-fn json_indexer_cell(cell: &LoadedCell, with_data: bool) -> Result<JsonIndexerCell, SysError> {
-    Ok(JsonIndexerCell {
-        output: json_output(&cell.output)?,
-        output_data: if with_data {
-            Some(hex_bytes(&cell.data))
-        } else {
-            None
-        },
-        out_point: json_out_point(cell)?,
-        block_number: hex_u64(cell.block_number.unwrap_or(0)),
-        tx_index: hex_u64(0),
-    })
-}
-
-fn cell_data_json(cell: &LoadedCell, with_data: bool) -> Result<Option<JsonCellData>, SysError> {
-    if !with_data {
-        return Ok(None);
-    }
-    Ok(Some(JsonCellData {
-        content: hex_bytes(&cell.data),
-        hash: hex_bytes(&ckb_hash::blake2b_256(&cell.data)),
-    }))
-}
-
-fn json_output(
-    output: &ckb_std::ckb_types::packed::CellOutput,
-) -> Result<JsonCellOutput, SysError> {
-    Ok(JsonCellOutput {
-        capacity: hex_u64(output.capacity().unpack()),
-        lock: json_script(&output.lock())?,
-        type_script: match output.type_().to_opt() {
-            Some(script) => Some(json_script(&script)?),
-            None => None,
-        },
-    })
-}
-
-fn json_script(script: &PackedScript) -> Result<JsonScript, SysError> {
-    Ok(JsonScript {
-        code_hash: hex_bytes(script.code_hash().as_slice()),
-        hash_type: hash_type_name(script.hash_type().as_slice()[0])?,
-        args: hex_bytes(script.args().raw_data().as_ref()),
-    })
-}
-
-fn json_out_point(cell: &LoadedCell) -> Result<JsonOutPoint, SysError> {
-    let index: u32 = cell.out_point.index().unpack();
-    Ok(JsonOutPoint {
-        tx_hash: hex_bytes(cell.out_point.tx_hash().as_slice()),
-        index: hex_u64(u64::from(index)),
-    })
-}
-
-fn hash_type_name(hash_type: u8) -> Result<String, SysError> {
-    match hash_type {
-        0 => Ok(String::from("data")),
-        1 => Ok(String::from("type")),
-        value if value % 2 == 0 => Ok(alloc::format!("data{}", value >> 1)),
-        _ => Err(SysError::Encoding),
-    }
-}
-
-fn hex_u64(value: u64) -> String {
-    alloc::format!("0x{value:x}")
-}
-
-fn hex_le_u64(value: u64) -> String {
-    hex_bytes(&value.to_le_bytes())
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(2 + bytes.len() * 2);
-    out.push_str("0x");
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
-}
-
-#[derive(Serialize)]
-struct JsonCellWithStatus {
-    cell: Option<JsonCellInfo>,
-    status: &'static str,
-    block_hash: Option<String>,
-}
-
-#[derive(Serialize)]
-struct JsonCellInfo {
-    data: Option<JsonCellData>,
-    output: JsonCellOutput,
-}
-
-#[derive(Serialize)]
-struct JsonCellData {
-    content: String,
-    hash: String,
-}
-
-#[derive(Serialize)]
-struct JsonCellOutput {
-    capacity: String,
-    lock: JsonScript,
-    #[serde(rename = "type")]
-    type_script: Option<JsonScript>,
-}
-
-#[derive(Serialize)]
-struct JsonScript {
-    code_hash: String,
-    hash_type: String,
-    args: String,
-}
-
-#[derive(Serialize)]
-struct JsonOutPoint {
-    tx_hash: String,
-    index: String,
-}
-
-#[derive(Serialize)]
-struct JsonIndexerCell {
-    output: JsonCellOutput,
-    output_data: Option<String>,
-    out_point: JsonOutPoint,
-    block_number: String,
-    tx_index: String,
-}
-
-#[derive(Serialize)]
-struct JsonPagination {
-    objects: Vec<JsonIndexerCell>,
-    last_cursor: String,
 }
 
 #[cfg(test)]
 mod tests {
     extern crate std;
 
-    use super::{cells_page, hex_bytes, live_cell_json};
+    use super::{cells_page, live_cell};
     use crate::utils::on_chain::LoadedCell;
-    use crate::utils::SysError;
-    use crate::utils::{Script, ScriptType, SearchKey, SearchKeyFilter, SearchMode};
+    use crate::utils::{
+        CellOutput, Order, OutPoint, Pagination, Script, ScriptType, SearchKey, SearchKeyFilter,
+        SearchMode,
+    };
     use alloc::vec;
     use alloc::vec::Vec;
     use ckb_std::ckb_types::{packed, prelude::*};
-    use serde_json::Value;
 
     fn script(code_hash: u8, hash_type: u8, args: &[u8]) -> packed::Script {
         packed::Script::new_builder()
@@ -370,35 +232,30 @@ mod tests {
         ]
     }
 
-    fn parse(bytes: &[u8]) -> Value {
-        serde_json::from_slice(bytes).unwrap()
-    }
-
     #[test]
-    fn live_cell_json_shapes() {
+    fn live_cell_shapes() {
         let cells = sample_cells();
-        let live = parse(&live_cell_json(Some(&cells[0]), true).unwrap());
-        assert_eq!(live["status"], "live");
+        let live = live_cell(Some(&cells[0]), true);
         assert_eq!(
-            live["block_hash"],
-            "0x0808080808080808080808080808080808080808080808080808080808080808"
+            live.output.as_ref().unwrap(),
+            &cells[0].output.clone().into()
         );
-        assert_eq!(live["cell"]["data"]["content"], "0x7e7f");
+        assert_eq!(live.data.as_deref(), Some(&[0x7e, 0x7f][..]));
+        assert_eq!(live.block_hash, Some([8u8; 32]));
+        let encoded = serde_molecule::to_vec(&live, false).unwrap();
         assert_eq!(
-            live["cell"]["data"]["hash"],
-            hex_bytes(&ckb_hash::blake2b_256([0x7eu8, 0x7f]))
+            serde_molecule::from_slice::<crate::utils::LiveCell>(&encoded, false).unwrap(),
+            live
         );
-        assert_eq!(live["cell"]["output"]["capacity"], "0x64");
-        assert_eq!(live["cell"]["output"]["lock"]["hash_type"], "data");
-        assert_eq!(live["cell"]["output"]["type"]["hash_type"], "type");
 
-        let without_data = parse(&live_cell_json(Some(&cells[0]), false).unwrap());
-        assert!(without_data["cell"]["data"].is_null());
+        let without_data = live_cell(Some(&cells[0]), false);
+        assert!(without_data.data.is_none());
+        assert!(without_data.output.is_some());
 
-        let unknown = parse(&live_cell_json(None, true).unwrap());
-        assert_eq!(unknown["status"], "unknown");
-        assert!(unknown["cell"].is_null());
-        assert!(unknown["block_hash"].is_null());
+        let unknown = live_cell(None, true);
+        assert!(unknown.output.is_none());
+        assert!(unknown.data.is_none());
+        assert!(unknown.block_hash.is_none());
     }
 
     #[test]
@@ -418,25 +275,31 @@ mod tests {
             group_by_transaction: Some(true),
         };
 
-        let page = parse(&cells_page(&cells, &key, 0, 1, 0).unwrap());
-        assert_eq!(page["objects"].as_array().unwrap().len(), 1);
-        assert!(page["objects"][0]["output_data"].is_null());
-        assert_eq!(page["objects"][0]["block_number"], "0x8");
-        assert_eq!(page["objects"][0]["tx_index"], "0x0");
-        assert_eq!(page["objects"][0]["out_point"]["index"], "0x0");
-        assert_eq!(page["last_cursor"], "0x0100000000000000");
+        let page = cells_page(&cells, &key, Order::Asc, 1, 0).unwrap();
+        assert_eq!(page.objects.len(), 1);
+        assert!(page.objects[0].output_data.is_none());
+        assert_eq!(page.objects[0].block_number, 8);
+        assert_eq!(page.objects[0].tx_index, 0);
+        assert_eq!(page.objects[0].out_point, cells[0].out_point.clone().into());
+        assert_eq!(page.objects[0].output, cells[0].output.clone().into());
+        assert_eq!(page.last_cursor, 1u64.to_le_bytes());
+        let encoded = serde_molecule::to_vec(&page, false).unwrap();
+        assert_eq!(
+            serde_molecule::from_slice::<Pagination>(&encoded, false).unwrap(),
+            page
+        );
 
-        let next = parse(&cells_page(&cells, &key, 0, 1, 1).unwrap());
-        assert_eq!(next["objects"][0]["out_point"]["index"], "0x1");
-        assert_eq!(next["objects"][0]["block_number"], "0x0");
-        assert_eq!(next["last_cursor"], "0x");
+        let next = cells_page(&cells, &key, Order::Asc, 1, 1).unwrap();
+        assert_eq!(next.objects[0].out_point, cells[1].out_point.clone().into());
+        assert_eq!(next.objects[0].block_number, 0);
+        assert!(next.last_cursor.is_empty());
 
-        let desc = parse(&cells_page(&cells, &key, 1, 1, 0).unwrap());
-        assert_eq!(desc["objects"][0]["out_point"]["index"], "0x1");
+        let desc = cells_page(&cells, &key, Order::Desc, 1, 0).unwrap();
+        assert_eq!(desc.objects[0].out_point, cells[1].out_point.clone().into());
 
-        let empty = parse(&cells_page(&cells, &key, 0, 0, 0).unwrap());
-        assert!(empty["objects"].as_array().unwrap().is_empty());
-        assert_eq!(empty["last_cursor"], "0x0000000000000000");
+        let empty = cells_page(&cells, &key, Order::Asc, 0, 0).unwrap();
+        assert!(empty.objects.is_empty());
+        assert_eq!(empty.last_cursor, 0u64.to_le_bytes());
     }
 
     #[test]
@@ -448,9 +311,12 @@ mod tests {
             script_search_mode: Some(SearchMode::Exact),
             ..SearchKey::default()
         };
-        let exact_page = parse(&cells_page(&cells, &exact, 0, 10, 0).unwrap());
-        assert_eq!(exact_page["objects"].as_array().unwrap().len(), 1);
-        assert_eq!(exact_page["objects"][0]["output_data"], "0x7e7f");
+        let exact_page = cells_page(&cells, &exact, Order::Asc, 10, 0).unwrap();
+        assert_eq!(exact_page.objects.len(), 1);
+        assert_eq!(
+            exact_page.objects[0].output_data.as_deref(),
+            Some(&[0x7e, 0x7f][..])
+        );
 
         let partial = SearchKey {
             script: indexer_script(&script(0x11, 0, &[0x02, 0x03])),
@@ -465,9 +331,12 @@ mod tests {
             }),
             ..SearchKey::default()
         };
-        let partial_page = parse(&cells_page(&cells, &partial, 0, 10, 0).unwrap());
-        assert_eq!(partial_page["objects"].as_array().unwrap().len(), 1);
-        assert_eq!(partial_page["objects"][0]["out_point"]["index"], "0x1");
+        let partial_page = cells_page(&cells, &partial, Order::Asc, 10, 0).unwrap();
+        assert_eq!(partial_page.objects.len(), 1);
+        assert_eq!(
+            partial_page.objects[0].out_point,
+            cells[1].out_point.clone().into()
+        );
 
         let type_key = SearchKey {
             script: indexer_script(&script(0x22, 1, &[0x10])),
@@ -479,12 +348,30 @@ mod tests {
             }),
             ..SearchKey::default()
         };
-        let type_page = parse(&cells_page(&cells, &type_key, 0, 10, 0).unwrap());
-        assert_eq!(type_page["objects"].as_array().unwrap().len(), 1);
+        let type_page = cells_page(&cells, &type_key, Order::Asc, 10, 0).unwrap();
+        assert_eq!(type_page.objects.len(), 1);
+    }
 
+    #[test]
+    fn serde_molecule_matches_packed_bytes() {
+        let cells = sample_cells();
+        let packed_script = script(0x11, 0, &[0xaa, 0x01]);
+        let script = Script::from(packed_script.clone());
         assert_eq!(
-            cells_page(&cells, &exact, 2, 1, 0).unwrap_err(),
-            SysError::IndexOutOfBound
+            serde_molecule::to_vec(&script, false).unwrap(),
+            packed_script.as_slice()
+        );
+
+        let output = CellOutput::from(cells[0].output.clone());
+        assert_eq!(
+            serde_molecule::to_vec(&output, false).unwrap(),
+            cells[0].output.as_slice()
+        );
+
+        let out_point = OutPoint::from(cells[0].out_point.clone());
+        assert_eq!(
+            serde_molecule::to_vec(&out_point, true).unwrap(),
+            cells[0].out_point.as_slice()
         );
     }
 }

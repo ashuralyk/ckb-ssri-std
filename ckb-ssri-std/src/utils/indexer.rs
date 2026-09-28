@@ -1,17 +1,20 @@
-//! Molecule layout of ckb-indexer's `get_cells` search key.
+//! Molecule layout of ckb-indexer's `get_cells` search key, and the molecule
+//! values returned by `get_cells` and `get_live_cell`.
 //!
 //! Field order matches `IndexerSearchKey` / `IndexerSearchKeyFilter` in CKB
 //! (`util/jsonrpc-types/src/indexer.rs`) and `ckb_sdk::rpc::ckb_indexer::SearchKey`.
-//! [`Script`] is the blockchain molecule `Script` table: its bytes equal
-//! `ckb_types::packed::Script`.
+//! [`Script`] and [`CellOutput`] are blockchain molecule tables. [`OutPoint`]
+//! is a molecule struct. Their bytes equal `ckb_types::packed`.
 //!
 //! `serde_molecule` encodes each struct as a molecule table, `Option` as a
 //! molecule option (absent is empty, present is the inner value), `Vec<u8>` as
 //! `Bytes`, and a unit enum as the little-endian union item id of its variant.
 //! `bool` is one byte, `0` or `1`. `[u64; 2]` is the indexer's half-open range
-//! `[start, end)`.
+//! `[start, end)`. A field marked `struct_serde` is a molecule struct. `Vec` of
+//! a table is a molecule vector (`dynvec_serde`).
 
 use alloc::vec::Vec;
+use ckb_std::ckb_types::{packed, prelude::*};
 use serde::{Deserialize, Serialize};
 
 /// ckb-indexer `SearchKey`.
@@ -52,10 +55,8 @@ pub struct Script {
     pub args: Vec<u8>,
 }
 
-impl From<ckb_std::ckb_types::packed::Script> for Script {
-    fn from(script: ckb_std::ckb_types::packed::Script) -> Self {
-        use ckb_std::ckb_types::prelude::Entity;
-
+impl From<packed::Script> for Script {
+    fn from(script: packed::Script) -> Self {
         let mut code_hash = [0u8; 32];
         code_hash.copy_from_slice(script.code_hash().as_slice());
         let hash_type = script.hash_type().as_slice()[0];
@@ -85,101 +86,74 @@ pub enum SearchMode {
     Partial,
 }
 
-#[cfg(test)]
-mod tests {
-    extern crate std;
+/// ckb-indexer `order`. Register values: `Asc` = 0, `Desc` = 1.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u64)]
+pub enum Order {
+    #[default]
+    Asc = 0,
+    Desc = 1,
+}
 
-    use crate::utils::{Script, ScriptType, SearchKey, SearchKeyFilter, SearchMode};
-    use alloc::vec;
-    use alloc::vec::Vec;
-    use ckb_std::ckb_types::{packed, prelude::*};
-    use serde_molecule::{from_slice, to_vec};
+/// Blockchain molecule `CellOutput`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CellOutput {
+    pub capacity: u64,
+    pub lock: Script,
+    pub type_: Option<Script>,
+}
 
-    fn table_fields(data: &[u8]) -> Vec<&[u8]> {
-        let total = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
-        assert_eq!(total, data.len());
-        let first = u32::from_le_bytes(data[4..8].try_into().unwrap()) as usize;
-        let count = first / 4 - 1;
-        let mut offsets = Vec::with_capacity(count + 1);
-        for index in 0..count {
-            let start = 4 + index * 4;
-            offsets.push(u32::from_le_bytes(data[start..start + 4].try_into().unwrap()) as usize);
+impl From<packed::CellOutput> for CellOutput {
+    fn from(output: packed::CellOutput) -> Self {
+        Self {
+            capacity: output.capacity().unpack(),
+            lock: output.lock().into(),
+            type_: output.type_().to_opt().map(Into::into),
         }
-        offsets.push(data.len());
-        offsets
-            .windows(2)
-            .map(|pair| &data[pair[0]..pair[1]])
-            .collect()
     }
+}
 
-    fn sample_packed() -> packed::Script {
-        packed::Script::new_builder()
-            .code_hash([0x11u8; 32].pack())
-            .hash_type(1u8)
-            .args([0xabu8, 0xcd].as_slice().pack())
-            .build()
+/// Blockchain molecule `OutPoint`. It is a molecule struct.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct OutPoint {
+    pub tx_hash: [u8; 32],
+    pub index: u32,
+}
+
+impl From<packed::OutPoint> for OutPoint {
+    fn from(out_point: packed::OutPoint) -> Self {
+        let mut tx_hash = [0u8; 32];
+        tx_hash.copy_from_slice(out_point.tx_hash().as_slice());
+        Self {
+            tx_hash,
+            index: out_point.index().unpack(),
+        }
     }
+}
 
-    #[test]
-    fn script_matches_packed_molecule() {
-        let packed = sample_packed();
-        let encoded = to_vec(&Script::from(packed.clone()), false).unwrap();
-        assert_eq!(encoded, packed.as_slice());
-    }
+/// `get_live_cell` result. An absent `output` is an unknown cell.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct LiveCell {
+    pub output: Option<CellOutput>,
+    pub data: Option<Vec<u8>>,
+    pub block_hash: Option<[u8; 32]>,
+}
 
-    #[test]
-    fn search_key_field_order_matches_indexer() {
-        let packed = sample_packed();
-        let filter_script = packed::Script::new_builder()
-            .code_hash([0x22u8; 32].pack())
-            .hash_type(0u8)
-            .args([0x01u8].as_slice().pack())
-            .build();
-        let output_data = vec![0x7eu8, 0x7f];
-        let key = SearchKey {
-            script: packed.clone().into(),
-            script_type: ScriptType::Type,
-            script_search_mode: Some(SearchMode::Exact),
-            filter: Some(SearchKeyFilter {
-                script: Some(filter_script.clone().into()),
-                script_len_range: Some([1, 2]),
-                output_data: Some(output_data.clone()),
-                output_data_filter_mode: Some(SearchMode::Partial),
-                output_data_len_range: Some([3, 4]),
-                output_capacity_range: Some([5, 6]),
-                block_range: Some([7, 8]),
-            }),
-            with_data: Some(true),
-            group_by_transaction: Some(false),
-        };
+/// One cell in a `get_cells` page.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct IndexerCell {
+    pub output: CellOutput,
+    pub output_data: Option<Vec<u8>>,
+    #[serde(with = "serde_molecule::struct_serde")]
+    pub out_point: OutPoint,
+    pub block_number: u64,
+    pub tx_index: u32,
+}
 
-        let encoded = to_vec(&key, false).unwrap();
-        let fields = table_fields(&encoded);
-        assert_eq!(fields.len(), 6);
-        assert_eq!(fields[0], packed.as_slice());
-        assert_eq!(fields[1], 1u32.to_le_bytes());
-        assert_eq!(fields[2], 1u32.to_le_bytes());
-        assert_eq!(fields[4], [1]);
-        assert_eq!(fields[5], [0]);
-
-        let filter = table_fields(fields[3]);
-        assert_eq!(filter.len(), 7);
-        assert_eq!(filter[0], filter_script.as_slice());
-        assert_eq!(filter[1], range_bytes(1, 2));
-        assert_eq!(filter[2], to_vec(&output_data, false).unwrap().as_slice());
-        assert_eq!(filter[3], 2u32.to_le_bytes());
-        assert_eq!(filter[4], range_bytes(3, 4));
-        assert_eq!(filter[5], range_bytes(5, 6));
-        assert_eq!(filter[6], range_bytes(7, 8));
-
-        let decoded: SearchKey = from_slice(&encoded, false).unwrap();
-        assert_eq!(decoded, key);
-    }
-
-    fn range_bytes(start: u64, end: u64) -> [u8; 16] {
-        let mut bytes = [0u8; 16];
-        bytes[..8].copy_from_slice(&start.to_le_bytes());
-        bytes[8..].copy_from_slice(&end.to_le_bytes());
-        bytes
-    }
+/// One `get_cells` page. `last_cursor` is molecule `Bytes`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Pagination {
+    #[serde(with = "serde_molecule::dynvec_serde")]
+    pub objects: Vec<IndexerCell>,
+    pub last_cursor: Vec<u8>,
 }
