@@ -64,15 +64,15 @@ pub fn write_bytes(buf: &mut [u8], data: &[u8]) -> Result<usize, SysError> {
 pub fn load_celldep_and_input_cells() -> Result<Vec<LoadedCell>, SysError> {
     let tx = high_level::load_transaction()?.raw();
     let mut cells = Vec::new();
-    let mut celldeps = tx.cell_deps().into_iter().enumerate();
-    let mut inputs = tx.inputs().into_iter().enumerate();
-    while let Some((index, dep)) = celldeps.next() {
+    let celldeps = tx.cell_deps().into_iter().enumerate();
+    let inputs = tx.inputs().into_iter().enumerate();
+    for (index, dep) in celldeps {
         if dep.dep_type().as_slice()[0] == DEP_GROUP {
             break;
         }
         cells.push(LoadedCell::new(dep.out_point(), index, Source::CellDep)?);
     }
-    while let Some((index, input)) = inputs.next() {
+    for (index, input) in inputs {
         cells.push(LoadedCell::new(
             input.previous_output(),
             index,

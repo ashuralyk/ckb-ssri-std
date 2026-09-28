@@ -5,8 +5,10 @@ use ckb_std::{
 };
 
 use crate::utils::{
-    on_chain::LoadedCell, IndexerCell, LiveCell, Order, Pagination, Script, ScriptType, SearchKey,
-    SearchMode,
+    indexer::{
+        IndexerCell, LiveCell, Order, Pagination, Script, ScriptType, SearchKey, SearchMode,
+    },
+    syscalls::on_chain::context::LoadedCell,
 };
 
 impl TryFrom<(&LoadedCell, bool)> for IndexerCell {
@@ -173,15 +175,18 @@ fn script_matches(mode: SearchMode, query: &Script, cell: &PackedScript) -> bool
 mod tests {
     extern crate std;
 
-    use super::{cells_page, live_cell};
-    use crate::utils::on_chain::LoadedCell;
-    use crate::utils::{
-        CellOutput, Order, OutPoint, Pagination, Script, ScriptType, SearchKey, SearchKeyFilter,
-        SearchMode,
-    };
-    use alloc::vec;
-    use alloc::vec::Vec;
+    use alloc::{vec, vec::Vec};
     use ckb_std::ckb_types::{packed, prelude::*};
+
+    use super::{cells_page, live_cell};
+
+    use crate::utils::{
+        indexer::{
+            CellOutput, LiveCell, Order, OutPoint, Pagination, Script, ScriptType, SearchKey,
+            SearchKeyFilter, SearchMode,
+        },
+        syscalls::on_chain::context::LoadedCell,
+    };
 
     fn script(code_hash: u8, hash_type: u8, args: &[u8]) -> packed::Script {
         packed::Script::new_builder()
@@ -244,7 +249,7 @@ mod tests {
         assert_eq!(live.block_hash, Some([8u8; 32]));
         let encoded = serde_molecule::to_vec(&live, false).unwrap();
         assert_eq!(
-            serde_molecule::from_slice::<crate::utils::LiveCell>(&encoded, false).unwrap(),
+            serde_molecule::from_slice::<LiveCell>(&encoded, false).unwrap(),
             live
         );
 

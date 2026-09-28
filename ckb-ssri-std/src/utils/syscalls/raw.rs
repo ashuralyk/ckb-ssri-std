@@ -5,6 +5,12 @@ use ckb_std::{ckb_constants::SYS_VM_VERSION, error::SysError};
 
 #[cfg(target_arch = "riscv64")]
 #[allow(clippy::too_many_arguments)]
+/// Invoke a CKB VM syscall through `ecall`.
+///
+/// # Safety
+///
+/// Registers must match the syscall in `a7`. When that syscall writes through
+/// `a0`, `a0` must be a valid pointer for the length in `a1`.
 pub unsafe fn syscall(
     mut a0: u64,
     a1: u64,
@@ -31,6 +37,12 @@ pub unsafe fn syscall(
 
 #[cfg(not(target_arch = "riscv64"))]
 #[allow(clippy::too_many_arguments)]
+/// Host stub for [`syscall`]. It does not dereference the registers.
+///
+/// # Safety
+///
+/// Same contract as the RISC-V `ecall` syscall. This stub ignores the registers
+/// and returns `u64::MAX`.
 pub unsafe fn syscall(
     _a0: u64,
     _a1: u64,
@@ -50,7 +62,8 @@ pub fn vm_version() -> u64 {
 
 /// Load data.
 /// Return data length or syscall error.
-pub(crate) fn syscall_load(
+#[allow(clippy::too_many_arguments)]
+pub fn syscall_load(
     buf_ptr: *mut u8,
     len: usize,
     a2: usize,

@@ -8,6 +8,7 @@
 - Keep syscall-framework refactors scoped to the `ckb-ssri-std` project.
 - Prefer inlining single-expression helpers so each caller holds the expression directly.
 - For hex-encoded indexer/JSON fields, use `ckb_std`'s `hex_string` and do not add a `0x` prefix.
+- Keep `cargo clippy --all-targets --all-features` free of warnings and errors.
 
 ## Learned Workspace Facts
 

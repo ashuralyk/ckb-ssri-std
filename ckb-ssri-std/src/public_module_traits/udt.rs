@@ -63,15 +63,13 @@ pub enum UDTError {
 }
 
 pub trait UDTPausable: UDT {
-    fn pause(
-        tx: Option<Transaction>,
-        lock_hashes: &Vec<[u8; 32]>,
-    ) -> Result<Transaction, Self::Error>;
+    fn pause(tx: Option<Transaction>, lock_hashes: &[[u8; 32]])
+        -> Result<Transaction, Self::Error>;
     fn unpause(
         tx: Option<Transaction>,
-        lock_hashes: &Vec<[u8; 32]>,
+        lock_hashes: &[[u8; 32]],
     ) -> Result<Transaction, Self::Error>;
-    fn is_paused(lock_hashes: &Vec<[u8; 32]>) -> Result<Vec<bool>, Self::Error>;
+    fn is_paused(lock_hashes: &[[u8; 32]]) -> Result<Vec<bool>, Self::Error>;
     fn enumerate_paused(offset: u64, limit: u64) -> Result<Byte32Vec, Self::Error>;
 }
 

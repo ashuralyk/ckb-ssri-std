@@ -1,14 +1,10 @@
 use ckb_std::error::SysError;
 
-use crate::utils::{self, Order, SearchKey};
-use alloc::vec::Vec;
-use catalog::{
-    SYS_FIND_CELL_BY_OUT_POINT, SYS_FIND_CELL_DATA_BY_OUT_POINT, SYS_FIND_OUT_POINT_BY_TYPE,
-    SYS_GET_BLOCK_HASH, SYS_GET_CELLS, SYS_GET_HEADER, SYS_GET_HEADER_BY_NUMBER, SYS_GET_LIVE_CELL,
-    SYS_GET_TRANSACTION_BLOCK_HASH, SYS_NETWORK,
+use crate::utils::{
+    indexer::{Order, SearchKey},
+    syscalls::{catalog::*, raw::syscall_load},
 };
-use raw::syscall_load;
-use utils::{catalog, raw};
+use alloc::vec::Vec;
 
 /// Find an OutPoint by searching for a specific type script.
 ///
@@ -211,7 +207,7 @@ pub fn get_cells(
     after: u64,
 ) -> Result<usize, SysError> {
     let mut cursor = Vec::with_capacity(4 + 8);
-    cursor.extend_from_slice(&(8 as u32).to_le_bytes());
+    cursor.extend_from_slice(&8_u32.to_le_bytes());
     cursor.extend_from_slice(&after.to_le_bytes());
     let search_key = serde_molecule::to_vec(search_key, false).map_err(|_| SysError::Encoding)?;
     syscall_load(

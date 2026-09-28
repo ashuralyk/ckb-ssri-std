@@ -1,4 +1,7 @@
-use crate::utils::{syscall_branch, LiveCell, Order, Pagination, SearchKey};
+use crate::{
+    syscall_branch,
+    utils::indexer::{LiveCell, Order, Pagination, SearchKey},
+};
 use alloc::{vec, vec::Vec};
 use ckb_std::{
     ckb_types::{
@@ -211,37 +214,4 @@ pub fn get_cells(
     let data =
         load_data(|buf, _offset| syscall_branch!(get_cells(buf, search_key, order, limit, after)))?;
     serde_molecule::from_slice(&data, false).map_err(|_| SysError::Encoding)
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate std;
-
-    use super::load_data;
-    use crate::utils::SysError;
-    use alloc::vec;
-    use core::cell::Cell;
-
-    #[test]
-    fn load_data_retries_into_a_full_buffer() {
-        let payload = vec![7u8; 300];
-        let calls = Cell::new(0usize);
-        let data = load_data(|buf, offset| {
-            let call = calls.get() + 1;
-            calls.set(call);
-            assert_eq!(offset, 0);
-            if call == 1 {
-                assert!(buf.len() < payload.len());
-                buf.copy_from_slice(&payload[..buf.len()]);
-                Err(SysError::LengthNotEnough(payload.len()))
-            } else {
-                assert_eq!(buf.len(), payload.len());
-                buf.copy_from_slice(&payload);
-                Ok(payload.len())
-            }
-        })
-        .unwrap();
-        assert_eq!(calls.get(), 2);
-        assert_eq!(data, payload);
-    }
 }

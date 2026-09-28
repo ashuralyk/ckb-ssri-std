@@ -8,7 +8,7 @@ use ckb_std::{
     high_level::{self, QueryIter},
 };
 
-use crate::utils::{Order, SearchKey};
+use crate::utils::indexer::{Order, SearchKey};
 
 mod context;
 mod pagination;
