@@ -7,7 +7,7 @@
 - Add tests covering each syscall.
 - Keep syscall-framework refactors scoped to the `ckb-ssri-std` project.
 - Prefer inlining single-expression helpers so each caller holds the expression directly.
-- For hex-encoded indexer/JSON fields, use `ckb_std`'s `hex_string` and do not add a `0x` prefix.
+- Prefer `serde_molecule` (`to_vec` / `from_slice`) over hand-rolled molecule table assemble/disassemble helpers.
 - Keep `cargo clippy --all-targets --all-features` free of warnings and errors.
 
 ## Learned Workspace Facts
@@ -17,6 +17,7 @@
 - Native backends use host/indexer-style injection; on-chain backends resolve the same meaning from the current transaction (cell deps, header deps, and related fields).
 - Host builds gate RISC-V `ecall` assembly behind `target_arch = "riscv64"` and stub otherwise.
 - The catalog includes CKB/ckb-indexer-aligned SSRI syscalls such as `network`, `get_live_cell`, `get_header`, `get_header_by_number`, `get_block_hash`, `get_transaction_block_hash`, and `get_cells`.
-- Indexer JSON response types (cell/pagination shapes) live in `indexer.rs` without a `Json` prefix; hex script naming avoids clashing with molecule `Script` (e.g. `HexScript`).
-- `get_cells` search keys use a `serde_molecule` type matching ckb-indexer's `SearchKey` layout.
-- Syscall return buffers for indexer-aligned methods (`get_cells`, `get_live_cell`) target ckb-indexer RPC JSON bytes; molecule `LiveCell` is a post-parse client type, not the syscall payload.
+- Crate modules live at the root (`high_level`, `indexer`, `syscalls`); there is no `public_module_traits` or nested `utils` wrapper.
+- Indexer/pagination types (`LiveCell`, `IndexerCell`, `Pagination`, `Order`, `SearchKey`) live in `indexer.rs` and use `serde_molecule` (packed `CellOutput`/`OutPoint`/bytes), not hex-string JSON shapes.
+- `get_cells` takes an `Order` enum (`Asc` = 0, `Desc` = 1) and `last_cursor: &[u8]` (empty starts the first page); search keys use a `serde_molecule` type matching ckb-indexer's `SearchKey` layout.
+- Syscall return buffers for `get_cells` / `get_live_cell` are `serde_molecule` bytes; `high_level` decodes them to `Pagination` / `LiveCell`.

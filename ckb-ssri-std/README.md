@@ -56,15 +56,15 @@ Each function loads the full syscall buffer, checks the encoding, and returns a 
 | `find_out_point_by_type(type_script)` | `OutPoint` of the first cell with that type script |
 | `find_cell_by_out_point(out_point)` | `CellOutput` |
 | `find_cell_data_by_out_point(out_point)` | cell data bytes |
-| `network()` | node info bytes (`local_node_info`) |
+| `network()` | `Network`: `Mainnet`, `Testnet`, or `Unknown` |
 | `get_live_cell(out_point, with_data)` | `indexer::LiveCell` |
 | `get_header(block_hash)` | `Header` |
 | `get_header_by_number(block_number)` | `Header` |
 | `get_block_hash(block_number)` | `Byte32` |
 | `get_transaction_block_hash(tx_hash)` | block hash from `get_transaction`'s `tx_status.block_hash` |
-| `get_cells(search_key, order, limit, after)` | `indexer::Pagination` |
+| `get_cells(search_key, order, limit, last_cursor)` | `indexer::Pagination` |
 
-`get_live_cell` and `get_cells` decode molecule bytes with `serde_molecule`. `SearchKey` follows ckb-indexer's search-key field order. `Order::Asc` is `0` and `Order::Desc` is `1`. `after` is the pagination cursor.
+`get_live_cell` and `get_cells` decode molecule bytes with `serde_molecule`. `SearchKey` follows ckb-indexer's search-key field order. `Order::Asc` is `0` and `Order::Desc` is `1`. `last_cursor` is the pagination cursor from the previous page; an empty slice starts at the first page.
 
 Syscall numbers live in `syscalls::catalog` (`2277` through `2367`).
 

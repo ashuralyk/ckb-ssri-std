@@ -198,17 +198,18 @@ pub fn get_transaction_block_hash(buf: &mut [u8], tx_hash: &[u8]) -> Result<usiz
 /// Native injection registers:
 /// `a2` is [`crate::indexer::SearchKey`] molecule bytes, `a3` their length,
 /// `a4` [`Order`] (`0` asc, `1` desc), `a5` limit,
-/// `a6` cursor whose first 4 bytes are the little-endian length of the `after` bytes that follow.
+/// `a6` cursor whose first 4 bytes are the little-endian length of the `last_cursor` bytes that follow.
 pub fn get_cells(
     buf: &mut [u8],
     search_key: &SearchKey,
     order: Order,
     limit: u64,
-    after: u64,
+    last_cursor: &[u8],
 ) -> Result<usize, SysError> {
-    let mut cursor = Vec::with_capacity(4 + 8);
-    cursor.extend_from_slice(&8_u32.to_le_bytes());
-    cursor.extend_from_slice(&after.to_le_bytes());
+    let cursor_len = u32::try_from(last_cursor.len()).map_err(|_| SysError::Encoding)?;
+    let mut cursor = Vec::with_capacity(4 + last_cursor.len());
+    cursor.extend_from_slice(&cursor_len.to_le_bytes());
+    cursor.extend_from_slice(last_cursor);
     let search_key = serde_molecule::to_vec(search_key, false).map_err(|_| SysError::Encoding)?;
     syscall_load(
         buf.as_mut_ptr(),

@@ -60,7 +60,7 @@ pub fn find_cell_data_by_out_point(buf: &mut [u8], out_point: &[u8]) -> Result<u
 /// On-chain adaptation of `network`.
 ///
 /// The first header dep whose raw hash is the mainnet or testnet genesis hash.
-/// Any other chain returns `SysError::Unknown` for the `network` syscall.
+/// Any other chain writes `unknown`.
 pub fn network(buf: &mut [u8]) -> Result<usize, SysError> {
     let tx = high_level::load_transaction()?.raw();
     let network = tx.header_deps().into_iter().find_map(|hash| {
@@ -157,10 +157,17 @@ pub fn get_cells(
     search_key: &SearchKey,
     order: Order,
     limit: u64,
-    after: u64,
+    last_cursor: &[u8],
 ) -> Result<usize, SysError> {
+    let start = if last_cursor.is_empty() {
+        0
+    } else if let Ok(bytes) = <[u8; 8]>::try_from(last_cursor) {
+        u64::from_le_bytes(bytes)
+    } else {
+        return Err(SysError::Encoding);
+    };
     let cells = load_celldep_and_input_cells()?;
-    let searched_cells = pagination::cells_page(&cells, search_key, order, limit, after)?;
+    let searched_cells = pagination::cells_page(&cells, search_key, order, limit, start)?;
     let encoded = serde_molecule::to_vec(&searched_cells, false).map_err(|_| SysError::Encoding)?;
     write_bytes(buf, &encoded)
 }

@@ -147,9 +147,26 @@ pub fn find_cell_data_by_out_point(out_point: OutPoint) -> Result<Vec<u8>, SysEr
     })
 }
 
+/// Chain named by the `network` syscall.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Network {
+    Mainnet,
+    Testnet,
+    Unknown,
+}
+
 /// CKB net RPC `local_node_info`.
-pub fn network() -> Result<Vec<u8>, SysError> {
-    load_data(|buf, _offset| syscall_branch!(network(buf)))
+///
+/// The syscall bytes are `mainnet`, `testnet`, or `unknown`. Any other encoding
+/// is `SysError::Encoding`.
+pub fn network() -> Result<Network, SysError> {
+    let data = load_data(|buf, _offset| syscall_branch!(network(buf)))?;
+    match data.as_slice() {
+        b"mainnet" => Ok(Network::Mainnet),
+        b"testnet" => Ok(Network::Testnet),
+        b"unknown" => Ok(Network::Unknown),
+        _ => Err(SysError::Encoding),
+    }
 }
 
 /// CKB RPC `get_live_cell`.
@@ -204,14 +221,15 @@ pub fn get_transaction_block_hash(tx_hash: Byte32) -> Result<Byte32, SysError> {
 ///
 /// Returns a [`Pagination`] of molecule cells. `search_key` is the molecule table
 /// in [`SearchKey`]. `order` is [`Order::Asc`] or [`Order::Desc`].
-/// `after` is the pagination cursor.
+/// `last_cursor` is the pagination cursor. An empty slice starts at the first page.
 pub fn get_cells(
     search_key: &SearchKey,
     order: Order,
     limit: u64,
-    after: u64,
+    last_cursor: &[u8],
 ) -> Result<Pagination, SysError> {
-    let data =
-        load_data(|buf, _offset| syscall_branch!(get_cells(buf, search_key, order, limit, after)))?;
+    let data = load_data(|buf, _offset| {
+        syscall_branch!(get_cells(buf, search_key, order, limit, last_cursor))
+    })?;
     serde_molecule::from_slice(&data, false).map_err(|_| SysError::Encoding)
 }
