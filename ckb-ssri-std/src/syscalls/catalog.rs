@@ -1,9 +1,10 @@
 //! SSRI syscall catalog.
 //!
 //! A syscall belongs here only when it has both a native-injection function and
-//! an on-chain function with the same signature. To add one:
+//! an on-chain function with the same signature. The on-chain function is
+//! compiled with the `on-chain` feature. To add one:
 //!
-//! 1. Add the same function to [`crate::syscalls::native`] and [`crate::syscalls::on_chain`].
+//! 1. Add the same function to [`crate::syscalls::native`] and `syscalls::on_chain`.
 //! 2. Add its number here.
 //! 3. Call it from `high_level` with `syscall_branch!`.
 

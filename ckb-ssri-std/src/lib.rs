@@ -41,8 +41,11 @@ use ckb_std::debug;
 
 /// Choose the on-chain or native-injection syscall of the same name.
 ///
-/// `should_fallback` is the environment check: `Ok(true)` calls `on_chain::$name`,
-/// `Ok(false)` calls `native::$name`. `InvalidVmVersion` becomes `SysError::Unknown(u64::MAX)`.
+/// `should_fallback` is the environment check. With the `on-chain` feature,
+/// `Ok(true)` calls `on_chain::$name` and `Ok(false)` calls `native::$name`.
+/// Without that feature, `Ok(true)` returns `SysError::Unknown(u64::MAX)`.
+/// `InvalidVmVersion` becomes the same error.
+#[cfg(feature = "on-chain")]
 #[macro_export]
 macro_rules! syscall_branch {
     ($name:ident($($arg:expr),* $(,)?)) => {{
@@ -51,6 +54,23 @@ macro_rules! syscall_branch {
             Ok(true) => on_chain::$name($($arg),*),
             Ok(false) => native::$name($($arg),*),
             Err(_) => Err(ckb_std::error::SysError::Unknown(u64::MAX)),
+        }
+    }};
+}
+
+/// Choose the native-injection syscall of the given name.
+///
+/// The `on-chain` feature is disabled, so `should_fallback` returning `Ok(true)`
+/// or `InvalidVmVersion` becomes `SysError::Unknown(u64::MAX)`. `Ok(false)` calls
+/// `native::$name`.
+#[cfg(not(feature = "on-chain"))]
+#[macro_export]
+macro_rules! syscall_branch {
+    ($name:ident($($arg:expr),* $(,)?)) => {{
+        use $crate::{should_fallback, syscalls::native};
+        match should_fallback() {
+            Ok(false) => native::$name($($arg),*),
+            _ => Err(ckb_std::error::SysError::Unknown(u64::MAX)),
         }
     }};
 }

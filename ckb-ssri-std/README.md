@@ -7,6 +7,12 @@
 ckb-ssri-std = "0.0.1"
 ```
 
+The `on-chain` feature compiles `syscalls::on_chain`. It is off by default. Enable it when a script must answer these syscalls during transaction verification:
+
+```toml
+ckb-ssri-std = { version = "0.0.1", features = ["on-chain"] }
+```
+
 The crate is `#![no_std]` and uses `alloc`. `ckb-ssri-std-proc-macro` is a dependency, so `ssri_methods!` is available from the crate root without a second dependency.
 
 ## Layout
@@ -16,10 +22,10 @@ The crate is `#![no_std]` and uses `alloc`. `ckb-ssri-std-proc-macro` is a depen
 | crate root | `syscall_branch!`, `should_fallback`, `SSRIError`, and `ssri_methods` |
 | `high_level` | Syscalls that return parsed molecule or `ckb_types` values |
 | `indexer` | `serde_molecule` types for `get_cells` and `get_live_cell` |
-| `syscalls` | `native` and `on_chain` backends, syscall numbers in `catalog`, and the `raw` `ecall` |
+| `syscalls` | `native` backend, optional `on_chain` backend (`on-chain` feature), syscall numbers in `catalog`, and the `raw` `ecall` |
 | `prelude` | Length-prefixed codecs for `u64` and `[u8; 32]` vectors |
 
-Call `high_level` from a script. `syscalls::native` and `syscalls::on_chain` are the two backends `syscall_branch!` chooses between. A syscall is part of SSRI only when both backends exist and share a signature.
+Call `high_level` from a script. `syscall_branch!` chooses `syscalls::native` or, when the `on-chain` feature is enabled, `syscalls::on_chain`. A syscall is part of SSRI only when both backends exist and share a signature.
 
 ## Backend selection
 
@@ -27,11 +33,11 @@ Call `high_level` from a script. `syscalls::native` and `syscalls::on_chain` are
 
 | Condition | Result |
 | --- | --- |
-| `argv` is empty | `Ok(true)`, use `on_chain` |
+| `argv` is empty | `Ok(true)`, use `on_chain` when the `on-chain` feature is enabled |
 | `argv` is present and `vm_version` is `u64::MAX` | `Ok(false)`, use `native` |
 | `argv` is present and `vm_version` is anything else | `Err(SSRIError::InvalidVmVersion)` |
 
-Empty `argv` is transaction verification: the on-chain backend answers from cell deps, header deps, and inputs. A present `argv` with the host stub (`vm_version == u64::MAX`) is native injection, where the host serves the same calls. `syscall_branch!` turns `InvalidVmVersion` into `SysError::Unknown(u64::MAX)`.
+Empty `argv` is transaction verification: the on-chain backend answers from cell deps, header deps, and inputs. A present `argv` with the host stub (`vm_version == u64::MAX`) is native injection, where the host serves the same calls. `syscall_branch!` turns `InvalidVmVersion` into `SysError::Unknown(u64::MAX)`. The same error is returned for `Ok(true)` when the `on-chain` feature is disabled.
 
 ```rust
 use ckb_ssri_std::syscall_branch;
@@ -39,7 +45,7 @@ use ckb_ssri_std::syscall_branch;
 let len = syscall_branch!(network(&mut buf))?;
 ```
 
-The macro calls `on_chain::network` or `native::network` with the same arguments.
+With `on-chain` enabled, the macro calls `on_chain::network` or `native::network` with the same arguments. Without that feature it calls `native::network` only when `should_fallback` is `Ok(false)`.
 
 ## High-level calls
 
